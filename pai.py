@@ -215,6 +215,8 @@ class ImageCache:
 class ImageView(gtk.DrawingArea):
     __gsignals__ = {
         'expose-event': 'override',
+        'style-set': 'override',
+        'direction-changed': 'override',
         }
     
     def __init__(self, cache, xspacing=0):
@@ -222,21 +224,47 @@ class ImageView(gtk.DrawingArea):
         self.xspacing = xspacing
         self.cache = cache
 
+        self.pango_context = None
+        self.pango_layout = None
+
         self.filenames = []
 
         style = self.get_style().copy()
         style.bg[gtk.STATE_NORMAL] = gtk.gdk.Color(0, 0, 0)
         self.set_style(style)
 
+        self.text = u""
+
     def set_files(self, filenames):
         self.filenames = filenames
         self.queue_resize()
+
+    def do_style_set(self, previous_style):
+        if self.pango_layout:
+            self.pango_layout.context_changed()
+        if isinstance(previous_style, gtk.Style):
+            gtk.Widget.do_style_set(self, previous_style)
+
+    def do_direction_changed(self, direction):
+        if self.pango_layout:
+            self.pango_layout.context_changed()
+        gtk.Widget.do_direction_changed(self, direction)
 
     def do_expose_event(self, event):
         if not self.cache or not self.filenames:
             return False
         x, y, width, height = self.get_allocation()
         to_show = self.__get_files_to_show(self.filenames, width, height)
+
+        # draw some text
+        if not self.pango_context:
+            self.pango_context = self.create_pango_context()
+        if not self.pango_layout:
+            self.pango_layout = self.create_pango_layout(self.text)
+        self.pango_layout.set_text(self.text)
+        self.window.draw_layout(self.get_style().white_gc,
+                                1, 1, self.pango_layout)
+        
         for xpos, ypos, pixbuf in to_show:
             self.blit_image(pixbuf, xpos, ypos, event.area)
 
@@ -373,6 +401,7 @@ class CollectionUI(ImageView):
             ImageView.preload(self, preload_files[i:j])
 
     def __update_position(self):
+        self.text = u"%d / %d" % (self.pos+1, len(self.filelist))
         self.set_files(self.__get_show_files())
         self.preload(self.__get_preload_files())
 
@@ -414,8 +443,9 @@ class PaiUI:
 
         self.window.add(self.collection)
         self.window.show_all()
-        
 
+        self.fullscreen = False
+        
     def key_press_event(self, widget, event):
         if event.keyval == gtk.keysyms.q:
             gtk.main_quit()
@@ -425,12 +455,29 @@ class PaiUI:
             self.collection.previous_screen()
         elif event.keyval == gtk.keysyms.Home:
             self.collection.first()
+        elif event.keyval == gtk.keysyms.Left:
+            if not self.collection.rtl:
+                self.collection.previous()
+            else:
+                self.collection.next()
+        elif event.keyval == gtk.keysyms.Right:
+            if not self.collection.rtl:
+                self.collection.next()
+            else:
+                self.collection.previous()
         elif event.keyval == gtk.keysyms.End:
             self.collection.last()
         elif event.keyval == gtk.keysyms.Prior:
             self.collection.previous_screen(10)
         elif event.keyval == gtk.keysyms.Next:
             self.collection.next_screen(10)
+        elif event.keyval == gtk.keysyms.f:
+            if not self.fullscreen:
+                self.window.fullscreen()
+                self.fullscreen = True
+            else:
+                self.window.unfullscreen()
+                self.fullscreen = False
 
     def destroy_event(self, widget):
         self.collection.close()
