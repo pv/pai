@@ -251,6 +251,8 @@ class ImageView(gtk.DrawingArea):
         gtk.Widget.do_direction_changed(self, direction)
 
     def do_expose_event(self, event):
+        if not self.window or not self.window.is_visible():
+            return
         if not self.cache or not self.filenames:
             return False
         x, y, width, height = self.get_allocation()
@@ -269,6 +271,8 @@ class ImageView(gtk.DrawingArea):
             self.blit_image(pixbuf, xpos, ypos, event.area)
 
     def preload(self, filenames):
+        if not self.window or not self.window.is_visible():
+            return
         if not isinstance(filenames, list):
             filenames = [filenames]
         x, y, width, height = self.get_allocation()
@@ -339,6 +343,10 @@ class ImageView(gtk.DrawingArea):
 ## CollectionUI
 
 class CollectionUI(ImageView):
+    __gsignals__ = {
+        'expose-event': 'override',
+        }
+    
     def __init__(self, sources, ncolumns=1, rtl=False):
         self.cache = ImageCache()
         ImageView.__init__(self, self.cache)
@@ -400,10 +408,18 @@ class CollectionUI(ImageView):
                 preload_files += [preload_files[-1]] * self.ncolumns
             ImageView.preload(self, preload_files[i:j])
 
+    def __preload_callback(self):
+        self.preload(self.__get_preload_files())
+        return False
+
+    def do_expose_event(self, event):
+        ImageView.do_expose_event(self, event)
+        gobject.idle_add(self.__preload_callback)
+
     def __update_position(self):
         self.text = u"%d / %d" % (self.pos+1, len(self.filelist))
         self.set_files(self.__get_show_files())
-        self.preload(self.__get_preload_files())
+        gobject.idle_add(self.__preload_callback)
 
     def __get_show_files(self):
         endpos = self.pos + self.ncolumns
@@ -430,13 +446,57 @@ class CollectionUI(ImageView):
     def __del__(self):
         self.close
 
+class Config(dict):
+    def load(self, filename):
+        f = open(filename, "r")
+        for line in f:
+            key, value = line.split("\t", 1)
+            self[key] = value
+
+    def save(self, filename):
+        f = open(filename, "w")
+        for key, value in self.items():
+            f.write("%s\t%s\n" % (key, str(value)))
+
+class Bookmarks:
+    def __init__(self, sources, config):
+        if not isinstance(sources, list):
+            sources = [sources]
+
+        self.config = config
+        self.configkey = ':'.join(sources).replace("\t", "_")
+
+        self.values = []
+
+        try:
+            if self.configkey in self.config:
+                self.values = map(int, self.config[self.configkey].split("\t"))
+        except:
+            self.values = []
+            
+        while len(self.values) < 10:
+            self.values.append(0)
+        if len(self.values) > 10:
+            self.values = self.values[0:10]
+
+    def __setitem__(self, i, value):
+        self.values[i] = int(value)
+        self.config[self.configkey] = '\t'.join(map(str, self.values))
+
+    def __getitem__(self, i):
+        return self.values[i]
 
 class PaiUI:
-    def __init__(self):
+    def __init__(self, sources, config):
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
 
-        self.collection = CollectionUI("../test", ncolumns=2, rtl=True)
+        self.config = config
+        self.bookmarks = Bookmarks(sources, self.config)
+
+        self.collection = CollectionUI(sources, ncolumns=2, rtl=True)
         self.collection.set_size_request(300, 200)
+
+        self.collection.goto(self.bookmarks[0])
 
         self.window.connect("destroy", self.destroy_event)
         self.window.connect("key-press-event", self.key_press_event)
@@ -448,7 +508,7 @@ class PaiUI:
         
     def key_press_event(self, widget, event):
         if event.keyval == gtk.keysyms.q:
-            gtk.main_quit()
+            self.close()
         elif event.keyval == gtk.keysyms.space:
             self.collection.next_screen()
         elif event.keyval == gtk.keysyms.b:
@@ -479,17 +539,26 @@ class PaiUI:
                 self.window.unfullscreen()
                 self.fullscreen = False
 
-    def destroy_event(self, widget):
+    def close(self):
+        self.bookmarks[0] = self.collection.pos
         self.collection.close()
         gtk.main_quit()
 
+    def destroy_event(self, widget):
+        self.close()
+        
     def main(self):
         gtk.main()
 
     def __del__(self):
-        self.collection.close()
+        self.close()
 
 if __name__ == "__main__":
-    ui = PaiUI()
+    config_fn = "%s/.pairc" % os.environ["HOME"]
+    config = Config()
+    if os.path.exists(config_fn):
+        config.load(config_fn)
+    ui = PaiUI("../test", config)
     ui.main()
+    config.save(config_fn)
     
