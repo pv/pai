@@ -155,7 +155,7 @@ class ImageCollection:
 
 
 ##############################################################################
-## UI
+## ImageCache / ImageView
 
 class ImageCache:
     def __init__(self, max_items=10):
@@ -197,15 +197,6 @@ class ImageCache:
             self.scaled_pixbufs[filename] = pixbuf
             gc.collect()
             return pixbuf
-
-class ScalingImage(gtk.DrawingArea):
-    def __init__(self, cache, filename):
-        gtk.DrawingArea.__init__(self)
-
-        self.cache = cache
-        self.filename = filename
-
-
 
 class ImageView(gtk.DrawingArea):
     __gsignals__ = {
@@ -304,22 +295,20 @@ class ImageView(gtk.DrawingArea):
                                     area.width, area.height)
         return True
 
+##############################################################################
+## CollectionUI
 
-class PaiUI:
+class CollectionUI:
     def __init__(self):
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
 
         self.cache = ImageCache()
 
         self.area = ImageView(self.cache, xspacing=0)
-        self.area.set_files(["../test/006.jpg", "../test/007.jpg", "../test/008.jpg"])
+        self.area.set_files([])
         self.area.set_size_request(300, 200)
 
         self.window.add(self.area)
-
-        style = self.window.get_style().copy()
-        style.bg[gtk.STATE_NORMAL] = gtk.gdk.Color(0, 0, 0)
-        self.window.set_style(style)
 
         self.window.show_all()
         self.window.connect("destroy", self.destroy_event)
@@ -332,6 +321,6 @@ class PaiUI:
         gtk.main()
 
 if __name__ == "__main__":
-    ui = PaiUI()
+    ui = CollectionUI()
     ui.main()
     
