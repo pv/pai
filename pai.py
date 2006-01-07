@@ -8,6 +8,7 @@ import gtk
 import gobject
 import gc
 import traceback
+import optparse
 
 
 ##############################################################################
@@ -139,6 +140,9 @@ class RecursiveFileList:
                                        RecursiveFileList.zip_extension_map)
 
         # List
+        self._files = [i for i in self._files
+                       if os.path.exists(i) ]
+        
         if extensionlist:
             self._files = [i for i in self._files
                            if i[-4:].lower() in extensionlist]
@@ -497,13 +501,13 @@ class Bookmarks:
         return self.values[i]
 
 class PaiUI:
-    def __init__(self, sources, config):
+    def __init__(self, sources, config, rtl=False, ncolumns=2):
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
 
         self.config = config
         self.bookmarks = Bookmarks(sources, self.config)
 
-        self.collection = CollectionUI(sources, ncolumns=2, rtl=True)
+        self.collection = CollectionUI(sources, ncolumns=ncolumns, rtl=rtl)
         self.collection.set_size_request(300, 200)
 
         self.collection.goto(self.bookmarks[0])
@@ -564,11 +568,27 @@ class PaiUI:
         self.close()
 
 if __name__ == "__main__":
+    parser = optparse.OptionParser(usage="%prog [options] images-or-something")
+    parser.add_option("-r", "--rtl", action="store_true", dest="rtl",
+                      help="show images in right-to-left order", default=True)
+    parser.add_option("-l", "--ltr", action="store_false", dest="rtl",
+                      help="show images in left-to-right order")
+    parser.add_option("-c", "--columns", type="int", dest="ncolumns",
+                      help="show images in N columns", default=2)
+    options, args = parser.parse_args()
+
+    if len(args) < 1:
+        parser.error("no image sources given")
+
+    if options.ncolumns > 4 or options.ncolumns < 1:
+        parser.error("invalid number of columns given")
+        
     config_fn = "%s/.pairc" % os.environ["HOME"]
     config = Config()
     if os.path.exists(config_fn):
         config.load(config_fn)
-    ui = PaiUI(sys.argv[1:], config)
+    ui = PaiUI(args, config, ncolumns=options.ncolumns, rtl=options.rtl)
     ui.main()
     config.save(config_fn)
-    
+
+    raise SystemExit(0)
