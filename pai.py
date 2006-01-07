@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 from __future__ import division
 
-import sys, os, shutil, tempfile, UserDict
+import sys, os, shutil, tempfile, re, UserDict
 import pygtk
 pygtk.require('2.0')
 import gtk
@@ -58,7 +58,7 @@ def numeric_file_sort(filelist):
 
 def recursive_unpack(dirname, unpackers):
     """Unpack all archives in dirname and return a file list."""
-    pathlist = [ dirname ]
+    pathlist = [ os.path.abspath(dirname) ]
     files = []
 
     while len(pathlist) > 0:
@@ -66,6 +66,16 @@ def recursive_unpack(dirname, unpackers):
         del pathlist[0]
 
         if os.path.isdir(path):
+            if os.path.islink(path):
+                items = os.listdir(path)
+                target = os.path.join(os.path.join(path, os.path.pardir),
+                                      os.readlink(path))
+                os.unlink(path)
+                os.mkdir(path)
+                for item in items:
+                    os.symlink(os.path.join(target, item),
+                               os.path.join(path, item))
+                
             pathlist += numeric_file_sort([os.path.join(path, i)
                                            for i in os.listdir(path)])
         elif os.path.isfile(path) and path in unpackers:
@@ -115,7 +125,7 @@ class RecursiveFileList:
 
         # Link seed files
         for filename in filenames:
-            os.symlink(filename,
+            os.symlink(os.path.abspath(filename),
                        os.path.join(self._cache_dir,
                                     os.path.basename(filename)))
 
@@ -129,10 +139,14 @@ class RecursiveFileList:
                            if i[-4:].lower() in extensionlist]
 
     def close(self):
+        import shutil
         if self._cache_dir:
             shutil.rmtree(self._cache_dir)
         self._cache_dir = None
         self._files = None
+
+    def __str__(self):
+        return str(self._files)
 
     def __del__(self):
         self.close()
@@ -158,7 +172,7 @@ class ImageCollection:
 ## ImageCache / ImageView
 
 class ImageCache:
-    def __init__(self, max_items=10):
+    def __init__(self, max_items=20):
         self.raw_pixbufs = {}
         self.scaled_pixbufs = {}
         self.filenames = []
@@ -203,9 +217,8 @@ class ImageView(gtk.DrawingArea):
         'expose-event': 'override',
         }
     
-    def __init__(self, cache, xspacing=0, direction=1):
+    def __init__(self, cache, xspacing=0):
         gtk.Container.__init__(self)
-        self.direction = direction
         self.xspacing = xspacing
         self.cache = cache
 
@@ -216,28 +229,21 @@ class ImageView(gtk.DrawingArea):
         self.set_style(style)
 
     def set_files(self, filenames):
-        if not isinstance(filenames, list):
-            filenames = [filenames]
         self.filenames = filenames
         self.queue_resize()
 
     def do_expose_event(self, event):
-        x, y, width, height = self.get_allocation()
-
         if not self.cache or not self.filenames:
             return False
-
+        x, y, width, height = self.get_allocation()
         to_show = self.__get_files_to_show(self.filenames, width, height)
-
         for xpos, ypos, pixbuf in to_show:
             self.blit_image(pixbuf, xpos, ypos, event.area)
 
     def preload(self, filenames):
-        x, y, width, height = self.get_allocation()
-        
         if not isinstance(filenames, list):
             filenames = [filenames]
-
+        x, y, width, height = self.get_allocation()
         self.__get_files_to_show(filenames, width, height)
 
     def __get_files_to_show(self, files, win_width, win_height):
@@ -245,20 +251,26 @@ class ImageView(gtk.DrawingArea):
         ypos = []
         pixbufs = []
 
-        available_width = win_width - self.xspacing*(len(files) - 1)
-        available_height = win_height
+        total_width = 0
+        total_height = 0
 
         for i in range(len(files)):
             raw_pixbuf = self.cache.get(files[i])
-            img_width = raw_pixbuf.get_width()
-            img_height = raw_pixbuf.get_height()
-            ratio = min(available_width / len(files) / img_width,
-                        available_height / img_height)
-            img_width *= ratio
-            img_height *= ratio
-            
-            pixbuf = self.cache.get_scaled(files[i],
-                                           int(img_width), int(img_height))
+            total_width += raw_pixbuf.get_width()
+            total_height = max(raw_pixbuf.get_height(), total_height)
+
+        available_width = win_width - self.xspacing*(len(files) - 1)
+        available_height = win_height
+
+        ratio = min(available_width / total_width,
+                    available_height / total_height)
+
+        for i in range(len(files)):
+            raw_pixbuf = self.cache.get(files[i])
+            img_width = int(raw_pixbuf.get_width() * ratio)
+            img_height = int(raw_pixbuf.get_height() * ratio)
+
+            pixbuf = self.cache.get_scaled(files[i], img_width, img_height)
             if not xpos:
                 xpos.append(img_width + self.xspacing)
             elif i == len(files) - 1:
@@ -298,29 +310,139 @@ class ImageView(gtk.DrawingArea):
 ##############################################################################
 ## CollectionUI
 
-class CollectionUI:
+class CollectionUI(ImageView):
+    def __init__(self, sources, ncolumns=1, rtl=False):
+        self.cache = ImageCache()
+        ImageView.__init__(self, self.cache)
+        self.filelist = RecursiveFileList(sources)
+        self.pos = 0
+        self.rtl = rtl
+        self.ncolumns = ncolumns
+
+        self.connect("map-event", self.__map_event)
+
+    def next(self, count=1):
+        self.pos += count
+        self.__limit_position()
+        self.__update_position()
+
+    def previous(self, count=1):
+        self.pos -= count
+        self.__limit_position()
+        self.__update_position()
+
+    def next_screen(self, count=1):
+        self.pos += self.ncolumns*count
+        self.__limit_position()
+        self.__update_position()
+
+    def previous_screen(self, count=1):
+        self.pos -= self.ncolumns*count
+        self.__limit_position()
+        self.__update_position()
+
+    def goto(self, i):
+        self.pos = i
+        self.__limit_position()
+        self.__update_position()
+
+    def first(self):
+        self.pos = 0
+        self.__update_position()
+
+    def last(self):
+        self.pos = len(self.filelist) - self.ncolumns
+        self.__update_position()
+
+    def __map_event(self, widget, event):
+        self.__update_position()
+        self.preload(self.__get_preload_files())
+
+    def __limit_position(self):
+        if self.pos > len(self.filelist) - self.ncolumns:
+            self.pos = len(self.filelist) - self.ncolumns
+        if self.pos < 0:
+            self.pos = 0
+
+    def preload(self, files):
+        preload_files = self.__get_preload_files()
+        for i in range(0, len(preload_files), self.ncolumns):
+            j = i + self.ncolumns
+            if j >= len(preload_files):
+                preload_files += [preload_files[-1]] * self.ncolumns
+            ImageView.preload(self, preload_files[i:j])
+
+    def __update_position(self):
+        self.set_files(self.__get_show_files())
+        self.preload(self.__get_preload_files())
+
+    def __get_show_files(self):
+        endpos = self.pos + self.ncolumns
+        if endpos > len(self.filelist):
+            endpos = len(self.filelist)
+
+        filelist = self.filelist[self.pos:endpos]
+
+        if self.rtl:
+            filelist.reverse()
+
+        return filelist
+
+    def __get_preload_files(self):
+        files = []
+        for i in range(-self.ncolumns, 2*self.ncolumns+1, 1):
+            if 0 <= self.pos + i < len(self.filelist):
+                files.append(self.filelist[self.pos + i])
+        return files
+
+    def close(self):
+        self.filelist.close()
+
+    def __del__(self):
+        self.close
+
+
+class PaiUI:
     def __init__(self):
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
 
-        self.cache = ImageCache()
+        self.collection = CollectionUI("../test", ncolumns=2, rtl=True)
+        self.collection.set_size_request(300, 200)
 
-        self.area = ImageView(self.cache, xspacing=0)
-        self.area.set_files([])
-        self.area.set_size_request(300, 200)
-
-        self.window.add(self.area)
-
-        self.window.show_all()
         self.window.connect("destroy", self.destroy_event)
+        self.window.connect("key-press-event", self.key_press_event)
 
+        self.window.add(self.collection)
+        self.window.show_all()
+        
+
+    def key_press_event(self, widget, event):
+        if event.keyval == gtk.keysyms.q:
+            gtk.main_quit()
+        elif event.keyval == gtk.keysyms.space:
+            self.collection.next_screen()
+        elif event.keyval == gtk.keysyms.b:
+            self.collection.previous_screen()
+        elif event.keyval == gtk.keysyms.Home:
+            self.collection.first()
+        elif event.keyval == gtk.keysyms.End:
+            self.collection.last()
+        elif event.keyval == gtk.keysyms.Prior:
+            self.collection.previous_screen(10)
+        elif event.keyval == gtk.keysyms.Next:
+            self.collection.next_screen(10)
 
     def destroy_event(self, widget):
+        self.collection.close()
         gtk.main_quit()
 
     def main(self):
         gtk.main()
 
+    def __del__(self):
+        self.collection.close()
+
 if __name__ == "__main__":
-    ui = CollectionUI()
+    ui = PaiUI()
     ui.main()
     
