@@ -7,6 +7,7 @@ pygtk.require('2.0')
 import gtk
 import gobject
 import gc
+import traceback
 
 
 ##############################################################################
@@ -125,9 +126,13 @@ class RecursiveFileList:
 
         # Link seed files
         for filename in filenames:
-            os.symlink(os.path.abspath(filename),
-                       os.path.join(self._cache_dir,
-                                    os.path.basename(filename)))
+            try:
+                absfilename = os.path.abspath(filename)
+                os.symlink(absfilename,
+                           os.path.join(self._cache_dir,
+                                        os.path.basename(absfilename)))
+            except OSError:
+                traceback.print_exc()
 
         # Recursive unpack
         self._files = recursive_unpack(self._cache_dir,
@@ -450,13 +455,18 @@ class Config(dict):
     def load(self, filename):
         f = open(filename, "r")
         for line in f:
-            key, value = line.split("\t", 1)
-            self[key] = value
+            try:
+                key, value = line.split("\t", 1)
+                self[key] = value
+            except:
+                pass
+            
 
     def save(self, filename):
         f = open(filename, "w")
         for key, value in self.items():
-            f.write("%s\t%s\n" % (key, str(value)))
+            if key:
+                f.write("%s\t%s\n" % (key, str(value)))
 
 class Bookmarks:
     def __init__(self, sources, config):
@@ -558,7 +568,7 @@ if __name__ == "__main__":
     config = Config()
     if os.path.exists(config_fn):
         config.load(config_fn)
-    ui = PaiUI("../test", config)
+    ui = PaiUI(sys.argv[1:], config)
     ui.main()
     config.save(config_fn)
     
