@@ -127,12 +127,14 @@ class RecursiveFileList:
         self._cache_dir = tempfile.mkdtemp()
 
         # Link seed files
+        self.sources = []
         for filename in filenames:
             try:
                 absfilename = os.path.abspath(filename)
-                os.symlink(absfilename,
-                           os.path.join(self._cache_dir,
-                                        os.path.basename(absfilename)))
+                targetname = os.path.join(self._cache_dir,
+                                          os.path.basename(absfilename))
+                os.symlink(absfilename, targetname)
+                self.sources.append([absfilename, targetname])
             except OSError:
                 traceback.print_exc()
 
@@ -162,7 +164,14 @@ class RecursiveFileList:
         self.close()
 
     def filename(self, i):
-        return self._files[i]
+        return self.to_filename(self._files[i])
+
+    def to_filename(self, fn):
+        for non_cached, cached in self.sources:
+            if os.path.commonprefix([fn, cached]) == cached:
+                fn = non_cached + fn[len(cached):]
+                return fn
+        return fn
 
     def __getitem__(self, i):
         return self._files[i]
@@ -430,8 +439,12 @@ class CollectionUI(ImageView):
         gobject.idle_add(self.__preload_callback)
 
     def __update_position(self):
-        self.text = u"%d / %d" % (self.pos+1, len(self.filelist))
-        self.set_files(self.__get_show_files())
+        files = self.__get_show_files()
+        filenames = [ self.filelist.to_filename(f) for f in files ]
+        self.text = u"%d / %d: %s" % (
+            self.pos+1, len(self.filelist),
+            unicode(', '.join(filenames), "latin-1"))
+        self.set_files(files)
         gobject.idle_add(self.__preload_callback)
 
     def __get_show_files(self):
