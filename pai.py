@@ -10,6 +10,7 @@ import gc
 import traceback
 import optparse
 
+IMAGE_EXTENSIONS = [ '.jpg', '.gif', '.png', '.tif', '.tiff', '.bmp' ]
 
 ##############################################################################
 ## Image list / recursive archive unpack
@@ -22,13 +23,13 @@ class ExtensionMap(UserDict.UserDict):
         
     def has_key(self, string):
         for key in self.iterkeys():
-            if string.endswith(key):
+            if string.lower().endswith(key):
                 return True
         return False
 
     def get(self, string, default=None):
         for key in self.iterkeys():
-            if string.endswith(key):
+            if string.lower().endswith(key):
                 return self.data[key]
         return default
 
@@ -37,7 +38,7 @@ class ExtensionMap(UserDict.UserDict):
 
     def __getitem__(self, string):
         for key in self.iterkeys():
-            if string.endswith(key):
+            if string.lower().endswith(key):
                 return self.data[key]
         raise KeyError(string)
 
@@ -359,7 +360,10 @@ class CollectionUI(ImageView):
     def __init__(self, sources, ncolumns=1, rtl=False):
         self.cache = ImageCache()
         ImageView.__init__(self, self.cache)
-        self.filelist = RecursiveFileList(sources)
+
+        self.sources = [ os.path.realpath(p) for p in sources
+                         if os.path.exists(p) ]
+        self.filelist = RecursiveFileList(self.sources, IMAGE_EXTENSIONS)
         self.pos = 0
         self.rtl = rtl
         self.ncolumns = ncolumns
@@ -505,11 +509,11 @@ class PaiUI:
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
 
         self.config = config
-        self.bookmarks = Bookmarks(sources, self.config)
 
         self.collection = CollectionUI(sources, ncolumns=ncolumns, rtl=rtl)
         self.collection.set_size_request(300, 200)
 
+        self.bookmarks = Bookmarks(self.collection.sources, self.config)
         self.collection.goto(self.bookmarks[0])
 
         self.window.connect("destroy", self.destroy_event)
@@ -517,8 +521,9 @@ class PaiUI:
 
         self.window.add(self.collection)
         self.window.show_all()
+        self.window.fullscreen()
 
-        self.fullscreen = False
+        self.fullscreen = True
         
     def key_press_event(self, widget, event):
         if event.keyval == gtk.keysyms.q:
