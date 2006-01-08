@@ -412,6 +412,11 @@ class CollectionUI(ImageView):
         self.pos = len(self.filelist) - self.ncolumns
         self.__update_position()
 
+    def update_view(self):
+        self.__limit_position()
+        self.__update_position()
+        self.queue_draw()
+
     def __map_event(self, widget, event):
         self.__update_position()
         self.preload(self.__get_preload_files())
@@ -563,6 +568,15 @@ class PaiUI:
             self.collection.previous_screen(10)
         elif event.keyval == gtk.keysyms.Next:
             self.collection.next_screen(10)
+        elif event.keyval == gtk.keysyms.r:
+            self.collection.rtl = not self.collection.rtl
+            self.collection.update_view()
+        elif event.keyval == gtk.keysyms.d:
+            if self.collection.ncolumns > 1:
+                self.collection.ncolumns = 1
+            else:
+                self.collection.ncolumns = 2
+            self.collection.update_view()
         elif event.keyval == gtk.keysyms.f:
             if not self.fullscreen:
                 self.window.fullscreen()
