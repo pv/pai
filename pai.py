@@ -225,8 +225,10 @@ class ImageCache:
                 raise KeyError(filename)
             return pixbuf
         except KeyError:
-            pixbuf = self.raw_pixbufs[filename].scale_simple(
-                width, height, gtk.gdk.INTERP_BILINEAR)
+            pixbuf = self.raw_pixbufs[filename]
+            if width != pixbuf.get_width() or height != pixbuf.get_height():
+                pixbuf = pixbuf.scale_simple(width, height,
+                                             gtk.gdk.INTERP_BILINEAR)
             self.scaled_pixbufs[filename] = pixbuf
             gc.collect()
             return pixbuf
@@ -253,6 +255,8 @@ class ImageView(gtk.DrawingArea):
         self.set_style(style)
 
         self.text = u""
+
+        self.unity_ratio = False
 
     def set_files(self, filenames):
         self.filenames = filenames
@@ -315,6 +319,9 @@ class ImageView(gtk.DrawingArea):
 
         ratio = min(available_width / total_width,
                     available_height / total_height)
+
+        if self.unity_ratio:
+            ratio = 1
 
         for i in range(len(files)):
             raw_pixbuf = self.cache.get(files[i])
@@ -576,6 +583,9 @@ class PaiUI:
                 self.collection.ncolumns = 1
             else:
                 self.collection.ncolumns = 2
+            self.collection.update_view()
+        elif event.keyval == gtk.keysyms.u:
+            self.collection.unity_ratio = not self.collection.unity_ratio
             self.collection.update_view()
         elif event.keyval == gtk.keysyms.f:
             if not self.fullscreen:
