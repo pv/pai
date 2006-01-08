@@ -196,6 +196,7 @@ class ImageCache:
         self.scaled_pixbufs = {}
         self.filenames = []
         self.max_items = max_items
+        self.interpolation = gtk.gdk.INTERP_BILINEAR
     
     def add(self, filename):
         if filename in self.filenames:
@@ -213,6 +214,10 @@ class ImageCache:
         self.filenames.append(filename)
         self.raw_pixbufs[filename] = raw_pixbuf
 
+    def set_interpolation(self, interpolation):
+        self.scaled_pixbufs = {}
+        self.interpolation = interpolation
+
     def get(self, filename):
         self.add(filename)
         return self.raw_pixbufs[filename]
@@ -228,7 +233,7 @@ class ImageCache:
             pixbuf = self.raw_pixbufs[filename]
             if width != pixbuf.get_width() or height != pixbuf.get_height():
                 pixbuf = pixbuf.scale_simple(width, height,
-                                             gtk.gdk.INTERP_BILINEAR)
+                                             self.interpolation)
             self.scaled_pixbufs[filename] = pixbuf
             gc.collect()
             return pixbuf
@@ -424,6 +429,12 @@ class CollectionUI(ImageView):
         self.__update_position()
         self.queue_draw()
 
+    def set_interpolation(self, interpolation):
+        self.cache.set_interpolation(interpolation)
+
+    def get_interpolation(self):
+        return self.cache.interpolation
+
     def __map_event(self, widget, event):
         self.__update_position()
         self.preload(self.__get_preload_files())
@@ -594,6 +605,14 @@ class PaiUI:
             else:
                 self.window.unfullscreen()
                 self.fullscreen = False
+        elif event.keyval == gtk.keysyms.i:
+            if self.collection.get_interpolation() == gtk.gdk.INTERP_BILINEAR:
+                self.collection.set_interpolation(gtk.gdk.INTERP_HYPER)
+            elif self.collection.get_interpolation() == gtk.gdk.INTERP_HYPER:
+                self.collection.set_interpolation(gtk.gdk.INTERP_NEAREST)
+            else:
+                self.collection.set_interpolation(gtk.gdk.INTERP_BILINEAR)
+            self.collection.update_view()
 
     def close(self):
         self.bookmarks[0] = self.collection.pos
