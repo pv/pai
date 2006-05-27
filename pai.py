@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 from __future__ import division
 
-import sys, os, shutil, tempfile, re, UserDict
+import sys, os, shutil, tempfile, re
 import pygtk
 pygtk.require('2.0')
 import gtk
@@ -15,11 +15,10 @@ IMAGE_EXTENSIONS = [ '.jpg', '.gif', '.png', '.tif', '.tiff', '.bmp' ]
 ##############################################################################
 ## Image list / recursive archive unpack
 
-class ExtensionMap(UserDict.UserDict):
+class ExtensionMap(dict):
     def __init__(self, dictionary=None):
-        UserDict.UserDict.__init__(self)
-        if dictionary:
-            self.data = dictionary
+        dict.__init__(self)
+        self.update(dictionary)
         
     def has_key(self, string):
         for key in self.iterkeys():
@@ -30,7 +29,7 @@ class ExtensionMap(UserDict.UserDict):
     def get(self, string, default=None):
         for key in self.iterkeys():
             if string.lower().endswith(key):
-                return self.data[key]
+                return dict.__getitem__(self, key)
         return default
 
     def __contains__(self, string):
@@ -39,7 +38,7 @@ class ExtensionMap(UserDict.UserDict):
     def __getitem__(self, string):
         for key in self.iterkeys():
             if string.lower().endswith(key):
-                return self.data[key]
+                return dict.__getitem__(self, key)
         raise KeyError(string)
 
 def numeric_file_sort(filelist):
@@ -191,7 +190,7 @@ class ImageCollection:
 ## ImageCache / ImageView
 
 class ImageCache:
-    def __init__(self, max_items=20):
+    def __init__(self, max_items=10):
         self.raw_pixbufs = {}
         self.scaled_pixbufs = {}
         self.filenames = []
@@ -204,8 +203,14 @@ class ImageCache:
         
         # cleanup cache, if necessary
         if len(self.filenames) + 1 > self.max_items:
-            del self.raw_pixbufs[self.filenames[0]]
-            del self.scaled_pixbufs[self.filenames[0]]
+            try:
+                del self.raw_pixbufs[self.filenames[0]]
+            except KeyError:
+                pass
+            try:
+                del self.scaled_pixbufs[self.filenames[0]]
+            except KeyError:
+                pass
             del self.filenames[0]
             gc.collect()
 
