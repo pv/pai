@@ -289,10 +289,6 @@ class ImageView(gtk.DrawingArea):
         if not self.cache or not self.filenames:
             return False
         x, y, width, height = self.get_allocation()
-        to_show = self.__get_files_to_show(self.filenames, width, height)
-
-        for xpos, ypos, pixbuf in to_show:
-            self.blit_image(pixbuf, xpos, ypos, event.area)
 
         # draw some text
         if not self.pango_context:
@@ -300,10 +296,17 @@ class ImageView(gtk.DrawingArea):
         if not self.pango_layout:
             self.pango_layout = self.create_pango_layout(self.text)
         self.pango_layout.set_text(self.text)
-        self.window.draw_layout(self.get_style().white_gc, 1, 1,
+        text_size = self.pango_layout.get_pixel_size()
+        height -= text_size[1]
+        self.window.draw_layout(self.get_style().white_gc, 0, 0,
                                 self.pango_layout,
                                 background=gtk.gdk.Color(0,0,0),
                                 foreground=gtk.gdk.Color(65535,65535,65535))
+ 
+        # render image
+        to_show = self.__get_files_to_show(self.filenames, width, height)
+        for xpos, ypos, pixbuf in to_show:
+            self.blit_image(pixbuf, xpos, text_size[1] + ypos, event.area)
 
     def preload(self, filenames):
         if not self.window or not self.window.is_visible():
@@ -471,6 +474,9 @@ class CollectionUI(ImageView):
     def __update_position(self):
         files = self.__get_show_files()
         filenames = [ self.filelist.to_filename(f) for f in files ]
+        filenames = [ os.path.join(os.path.basename(os.path.dirname(f)),
+                                   os.path.basename(f))
+                      for f in filenames ]
         self.text = u"%d / %d: %s" % (
             self.pos+1, len(self.filelist),
             unicode(', '.join(filenames), "latin-1"))
