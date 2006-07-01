@@ -291,17 +291,19 @@ class ImageView(gtk.DrawingArea):
         x, y, width, height = self.get_allocation()
         to_show = self.__get_files_to_show(self.filenames, width, height)
 
+        for xpos, ypos, pixbuf in to_show:
+            self.blit_image(pixbuf, xpos, ypos, event.area)
+
         # draw some text
         if not self.pango_context:
             self.pango_context = self.create_pango_context()
         if not self.pango_layout:
             self.pango_layout = self.create_pango_layout(self.text)
         self.pango_layout.set_text(self.text)
-        self.window.draw_layout(self.get_style().white_gc,
-                                1, 1, self.pango_layout)
-        
-        for xpos, ypos, pixbuf in to_show:
-            self.blit_image(pixbuf, xpos, ypos, event.area)
+        self.window.draw_layout(self.get_style().white_gc, 1, 1,
+                                self.pango_layout,
+                                background=gtk.gdk.Color(0,0,0),
+                                foreground=gtk.gdk.Color(65535,65535,65535))
 
     def preload(self, filenames):
         if not self.window or not self.window.is_visible():
