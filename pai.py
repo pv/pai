@@ -1,4 +1,15 @@
 #!/usr/bin/env python
+"""
+===
+pai
+===
+
+-------------------------
+Picture archive inspector
+-------------------------
+
+:Author: Pauli Virtanen <pav@iki.fi>
+"""
 from __future__ import division
 
 import sys, os, shutil, tempfile, re, random, time, traceback, copy
@@ -43,6 +54,7 @@ IMAGE_EXTENSIONS = [ '.jpg', '.gif', '.png', '.tif', '.tiff', '.bmp' ]
 #
 
 def run_in_gui_thread(func, *a, **kw):
+    """Run the function in the GUI thread, next time when the GUI is idle."""
     def timer():
         func(*a, **kw)
         return False
@@ -50,6 +62,7 @@ def run_in_gui_thread(func, *a, **kw):
     return None
 
 def assert_gui_thread(func):
+    """Assert that this function is ran in the GUI thread. [decorator]"""
     def _wrapper(*a, **kw):
         assert threading.currentThread() == threading.enumerate()[0], \
                (func, threading.currentThread(), threading.enumerate())
@@ -148,6 +161,7 @@ def recursive_unpack(dirname, unpackers, progress_queue=None):
     return files
 
 def unpack_atool(archive, todir):
+    """Unpack an archive using ``aunpack`` from ``atool``."""
     exitcode = os.spawnlp(os.P_WAIT,
                           "aunpack",
                           "aunpack", "-X", todir, archive)
@@ -155,6 +169,9 @@ def unpack_atool(archive, todir):
         raise ValueError("Archive unpack failed")
 
 class RecursiveFileList:
+    """Get a list of files in given sources, including contents of archives,
+    which will be recursively unpacked."""
+    
     zip_extension_map = ExtensionMap({
         '.zip': unpack_atool,
         '.tar': unpack_atool,
