@@ -63,6 +63,7 @@ def run_in_gui_thread(func, *a, **kw):
 
 def assert_gui_thread(func):
     """Assert that this function is ran in the GUI thread. [decorator]"""
+    if not __debug__: return func
     def _wrapper(*a, **kw):
         assert threading.currentThread() == threading.enumerate()[0], \
                (func, threading.currentThread(), threading.enumerate())
