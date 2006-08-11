@@ -15,7 +15,32 @@ import threading, Queue
 IMAGE_EXTENSIONS = [ '.jpg', '.gif', '.png', '.tif', '.tiff', '.bmp' ]
 
 ##############################################################################
-## Make gtk.threads_enter/leave re-entrant
+## GUI threading
+##############################################################################
+#
+# Every time you call a non-threadsafe GTK function (=most of them),
+# be sure that either
+# 1. The function where you make the call has @assert_gui_thread, OR,
+# 2. You make the call via run_in_gui_thread
+#
+# Blocks to run in gui thread sometime later (as a shorthand) can be
+# specified via
+#
+# >>> @run_in_gui_thread
+# ... def _():
+# ...     stuff_to_do
+#
+# But remember how lexical binding works though,
+#
+# >>> item = True
+# >>> def foo():
+# ...     assert item == True
+# >>> item = False
+# >>> foo()
+# Traceback (most recent call last):
+#   ...
+# AssertionError
+#
 
 def run_in_gui_thread(func, *a, **kw):
     def timer():
@@ -31,8 +56,10 @@ def assert_gui_thread(func):
         return func(*a, **kw)
     return _wrapper
 
+
 ##############################################################################
 ## Image list / recursive archive unpack
+##############################################################################
 
 class ExtensionMap(dict):
     def __init__(self, dictionary=None):
@@ -200,16 +227,10 @@ class RecursiveFileList:
     def __len__(self):
         return len(self._files)
 
-##############################################################################
-## Image collection
-
-class ImageCollection:
-    def __init__(filenames):
-        pass
-
 
 ##############################################################################
 ## ImageCache / ImageView
+##############################################################################
 
 class ImageCache:
     def __init__(self, max_items=10):
@@ -411,23 +432,25 @@ class ImageView(gtk.DrawingArea):
                                     area.width, area.height)
         return True
 
+
 ##############################################################################
-## CollectionUI
+## UI
+##############################################################################
 
 class CollectionUI(ImageView):
     __gsignals__ = {
         'expose-event': 'override',
         }
     
-    def __init__(self, sources, ncolumns=1, rtl=False, progress_queue=None):
+    def __init__(self, sources, ncolumns=1, rtl=False, progress_dlg=None):
         self.cache = ImageCache()
         ImageView.__init__(self, self.cache)
 
         self.sources = [ os.path.realpath(p) for p in sources
                          if os.path.exists(p) ]
         self.filelist = RecursiveFileList(self.sources, IMAGE_EXTENSIONS,
-                                          progress_queue)
-        progress_queue.put(None)
+                                          progress_dlg.queue)
+        progress_dlg.close()
         self.pos = 0
         self.rtl = rtl
         self.ncolumns = ncolumns
@@ -587,12 +610,12 @@ class Bookmarks:
 
 class PaiUI:
     def __init__(self, sources, config, rtl=False, ncolumns=2,
-                 progress_queue=None):
+                 progress_dlg=None):
 
         self.config = config
 
         self.collection = CollectionUI(sources, ncolumns=ncolumns, rtl=rtl,
-                                       progress_queue=progress_queue)
+                                       progress_dlg=progress_dlg)
 
         self.bookmarks = Bookmarks(self.collection.sources, self.config)
         self.collection.goto(self.bookmarks[0])
@@ -680,6 +703,10 @@ class PaiUI:
         self.close()
 
 
+##############################################################################
+## Progress dialog
+##############################################################################
+
 class ProgressDialog:
     """A dialog box that reports progress.
 
@@ -727,15 +754,23 @@ class ProgressDialog:
     def __getattr__(self, name):
         return getattr(self.bar, name)
 
-def main(args, options, config):
+    def close(self):
+        self.queue.put(None)
+
+
+##############################################################################
+## Main
+##############################################################################
+
+def start(args, options, config):
     progress = ProgressDialog("Starting PAI...")
 
     ui = PaiUI(args, config, ncolumns=options.ncolumns, rtl=options.rtl,
-               progress_queue=progress.queue)
+               progress_dlg=progress)
 
     run_in_gui_thread(ui.show)
 
-if __name__ == "__main__":
+def main():
     parser = optparse.OptionParser(usage="%prog [options] images-or-something")
     parser.add_option("-r", "--rtl", action="store_true", dest="rtl",
                       help="show images in right-to-left order", default=True)
@@ -758,10 +793,12 @@ if __name__ == "__main__":
 
     gtk.threads_init()
 
-    threading.Thread(target=main, args=(args, options, config,)).start()
+    threading.Thread(target=start, args=(args, options, config,)).start()
 
     gtk.main()
 
     config.save(config_fn)
 
-    raise SystemExit(0)
+    sys.exit(0)
+
+if __name__ == "__main__": main()
