@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 from __future__ import division
 
-import sys, os, shutil, tempfile, re
+import sys, os, shutil, tempfile, re, random, time, traceback, copy
 import pygtk
 pygtk.require('2.0')
 import gtk
@@ -10,7 +10,26 @@ import gc
 import traceback
 import optparse
 
+import threading, Queue
+
 IMAGE_EXTENSIONS = [ '.jpg', '.gif', '.png', '.tif', '.tiff', '.bmp' ]
+
+##############################################################################
+## Make gtk.threads_enter/leave re-entrant
+
+def run_in_gui_thread(func, *a, **kw):
+    def timer():
+        func(*a, **kw)
+        return False
+    gobject.idle_add(timer)
+    return None
+
+def assert_gui_thread(func):
+    def _wrapper(*a, **kw):
+        assert threading.currentThread() == threading.enumerate()[0], \
+               (func, threading.currentThread(), threading.enumerate())
+        return func(*a, **kw)
+    return _wrapper
 
 ##############################################################################
 ## Image list / recursive archive unpack
@@ -58,7 +77,7 @@ def numeric_file_sort(filelist):
     lst.sort(key=sort_key)
     return lst
 
-def recursive_unpack(dirname, unpackers):
+def recursive_unpack(dirname, unpackers, progress_queue=None):
     """Unpack all archives in dirname and return a file list."""
     pathlist = [ os.path.abspath(dirname) ]
     files = []
@@ -68,6 +87,7 @@ def recursive_unpack(dirname, unpackers):
         del pathlist[0]
 
         if os.path.isdir(path):
+            if progress_queue: progress_queue.put(os.path.basename(path))
             if os.path.islink(path):
                 items = os.listdir(path)
                 target = os.path.join(os.path.join(path, os.path.pardir),
@@ -81,6 +101,7 @@ def recursive_unpack(dirname, unpackers):
             pathlist += numeric_file_sort([os.path.join(path, i)
                                            for i in os.listdir(path)])
         elif os.path.isfile(path) and path in unpackers:
+            if progress_queue: progress_queue.put(os.path.basename(path))
             unpacker = unpackers[path]
             root, ext = os.path.splitext(path)
             tmpname = tempfile.mktemp(ext, '', os.path.dirname(path))
@@ -119,7 +140,7 @@ class RecursiveFileList:
         '.cbr': unpack_atool,
         })
 
-    def __init__(self, filenames, extensionlist=None):
+    def __init__(self, filenames, extensionlist=None, progress_queue=None):
         if not isinstance(filenames, list):
             filenames = [filenames]
         
@@ -139,7 +160,8 @@ class RecursiveFileList:
 
         # Recursive unpack
         self._files = recursive_unpack(self._cache_dir,
-                                       RecursiveFileList.zip_extension_map)
+                                       RecursiveFileList.zip_extension_map,
+                                       progress_queue)
 
         # List
         self._files = [i for i in self._files
@@ -249,9 +271,8 @@ class ImageView(gtk.DrawingArea):
         'style-set': 'override',
         'direction-changed': 'override',
         }
-    
+
     def __init__(self, cache, xspacing=0):
-        gtk.Container.__init__(self)
         self.xspacing = xspacing
         self.cache = cache
 
@@ -260,29 +281,36 @@ class ImageView(gtk.DrawingArea):
 
         self.filenames = []
 
-        style = self.get_style().copy()
-        style.bg[gtk.STATE_NORMAL] = gtk.gdk.Color(0, 0, 0)
-        self.set_style(style)
-
         self.text = u""
 
         self.unity_ratio = False
 
+        @run_in_gui_thread
+        def _():
+            gtk.DrawingArea.__init__(self)
+
+            style = self.get_style().copy()
+            style.bg[gtk.STATE_NORMAL] = gtk.gdk.Color(0, 0, 0)
+            self.set_style(style)
+
     def set_files(self, filenames):
         self.filenames = filenames
-        self.queue_resize()
+        run_in_gui_thread(self.queue_resize)
 
+    @assert_gui_thread
     def do_style_set(self, previous_style):
         if self.pango_layout:
             self.pango_layout.context_changed()
         if isinstance(previous_style, gtk.Style):
             gtk.Widget.do_style_set(self, previous_style)
 
+    @assert_gui_thread
     def do_direction_changed(self, direction):
         if self.pango_layout:
             self.pango_layout.context_changed()
         gtk.Widget.do_direction_changed(self, direction)
 
+    @assert_gui_thread
     def do_expose_event(self, event):
         if not self.window or not self.window.is_visible():
             return
@@ -305,6 +333,7 @@ class ImageView(gtk.DrawingArea):
                                 background=gtk.gdk.Color(0,0,0),
                                 foreground=gtk.gdk.Color(65535,65535,65535))
 
+    @assert_gui_thread
     def preload(self, filenames):
         if not self.window or not self.window.is_visible():
             return
@@ -313,6 +342,7 @@ class ImageView(gtk.DrawingArea):
         x, y, width, height = self.get_allocation()
         self.__get_files_to_show(filenames, width, height)
 
+    @assert_gui_thread
     def __get_files_to_show(self, files, win_width, win_height):
         xpos = []
         ypos = []
@@ -357,6 +387,7 @@ class ImageView(gtk.DrawingArea):
         
         return zip(xpos, ypos, pixbufs)
 
+    @assert_gui_thread
     def blit_image(self, pixbuf, dst_x, dst_y, clip_rect):
         pixbuf_area = gtk.gdk.Rectangle()
         pixbuf_area.width = pixbuf.get_width()
@@ -385,18 +416,20 @@ class CollectionUI(ImageView):
         'expose-event': 'override',
         }
     
-    def __init__(self, sources, ncolumns=1, rtl=False):
+    def __init__(self, sources, ncolumns=1, rtl=False, progress_queue=None):
         self.cache = ImageCache()
         ImageView.__init__(self, self.cache)
 
         self.sources = [ os.path.realpath(p) for p in sources
                          if os.path.exists(p) ]
-        self.filelist = RecursiveFileList(self.sources, IMAGE_EXTENSIONS)
+        self.filelist = RecursiveFileList(self.sources, IMAGE_EXTENSIONS,
+                                          progress_queue)
+        progress_queue.put(None)
         self.pos = 0
         self.rtl = rtl
         self.ncolumns = ncolumns
 
-        self.connect("map-event", self.__map_event)
+        run_in_gui_thread(self.connect, "map-event", self.__map_event)
 
     def next(self, count=1):
         self.pos += count
@@ -434,7 +467,7 @@ class CollectionUI(ImageView):
     def update_view(self):
         self.__limit_position()
         self.__update_position()
-        self.queue_draw()
+        run_in_gui_thread(self.queue_draw)
 
     def set_interpolation(self, interpolation):
         self.cache.set_interpolation(interpolation)
@@ -442,6 +475,7 @@ class CollectionUI(ImageView):
     def get_interpolation(self):
         return self.cache.interpolation
 
+    @assert_gui_thread
     def __map_event(self, widget, event):
         self.__update_position()
         self.preload(self.__get_preload_files())
@@ -460,13 +494,10 @@ class CollectionUI(ImageView):
                 preload_files += [preload_files[-1]] * self.ncolumns
             ImageView.preload(self, preload_files[i:j])
 
-    def __preload_callback(self):
-        self.preload(self.__get_preload_files())
-        return False
-
+    @assert_gui_thread
     def do_expose_event(self, event):
         ImageView.do_expose_event(self, event)
-        gobject.idle_add(self.__preload_callback)
+        run_in_gui_thread(self.preload, self.__get_preload_files())
 
     def __update_position(self):
         files = self.__get_show_files()
@@ -475,7 +506,8 @@ class CollectionUI(ImageView):
             self.pos+1, len(self.filelist),
             unicode(', '.join(filenames), "latin-1"))
         self.set_files(files)
-        gobject.idle_add(self.__preload_callback)
+
+        run_in_gui_thread(self.preload, self.__get_preload_files())
 
     def __get_show_files(self):
         endpos = self.pos + self.ncolumns
@@ -500,7 +532,7 @@ class CollectionUI(ImageView):
         self.filelist.close()
 
     def __del__(self):
-        self.close
+        self.close()
 
 class Config(dict):
     def load(self, filename):
@@ -548,26 +580,36 @@ class Bookmarks:
         return self.values[i]
 
 class PaiUI:
-    def __init__(self, sources, config, rtl=False, ncolumns=2):
-        self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
+    def __init__(self, sources, config, rtl=False, ncolumns=2,
+                 progress_queue=None):
 
         self.config = config
 
-        self.collection = CollectionUI(sources, ncolumns=ncolumns, rtl=rtl)
-        self.collection.set_size_request(300, 200)
+        self.collection = CollectionUI(sources, ncolumns=ncolumns, rtl=rtl,
+                                       progress_queue=progress_queue)
 
         self.bookmarks = Bookmarks(self.collection.sources, self.config)
         self.collection.goto(self.bookmarks[0])
 
-        self.window.connect("destroy", self.destroy_event)
-        self.window.connect("key-press-event", self.key_press_event)
-
-        self.window.add(self.collection)
-        self.window.show_all()
-        self.window.fullscreen()
-
-        self.fullscreen = True
+        self.fullscreen = False#True
         
+        @run_in_gui_thread
+        def _():
+            self.collection.set_size_request(300, 200)
+
+            self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
+            self.window.connect("destroy", self.destroy_event)
+            self.window.connect("key-press-event", self.key_press_event)
+            self.window.add(self.collection)
+
+
+    @assert_gui_thread
+    def show(self):
+        self.window.show_all()
+        if self.fullscreen:
+            self.window.fullscreen()
+        
+    @assert_gui_thread
     def key_press_event(self, widget, event):
         if event.keyval == gtk.keysyms.q:
             self.close()
@@ -621,19 +663,71 @@ class PaiUI:
                 self.collection.set_interpolation(gtk.gdk.INTERP_BILINEAR)
             self.collection.update_view()
 
+    @assert_gui_thread
     def close(self):
         self.bookmarks[0] = self.collection.pos
         self.collection.close()
         gtk.main_quit()
 
+    @assert_gui_thread
     def destroy_event(self, widget):
         self.close()
-        
-    def main(self):
-        gtk.main()
 
-    def __del__(self):
-        self.close()
+
+class ProgressDialog:
+    """A dialog box that reports progress.
+
+    >>> dlg = ProgressDialog()
+    >>> dlg.set_progress(percentage=50, text="Foo")
+    >>> dlg.close()
+    """
+    def __init__(self, title=""):
+        @run_in_gui_thread
+        def _():
+            self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
+            self.window.set_title(title)
+
+            vbox = gtk.VBox(False, 2)
+            vbox.set_border_width(10)
+            self.window.add(vbox)
+            vbox.show()
+
+            self.label = gtk.Label()
+            vbox.pack_start(self.label)
+            self.label.show()
+
+            self.bar = gtk.ProgressBar()
+            vbox.pack_end(self.bar)
+            self.bar.show()
+
+            self.window.show()
+
+        self.queue = Queue.Queue()
+        self.__listener = threading.Thread(target=self.__listener)
+        self.__listener.start()
+
+    def __listener(self):
+        while True:
+            item = copy.copy(self.queue.get())
+            if isinstance(item, str):
+                run_in_gui_thread(self.bar.set_text, item)
+                run_in_gui_thread(self.label.set_text, item)
+                run_in_gui_thread(self.bar.pulse)
+            elif item == None:
+                run_in_gui_thread(self.window.destroy)
+                return
+
+    @assert_gui_thread
+    def __getattr__(self, name):
+        return getattr(self.bar, name)
+
+def main(args, options, config):
+    progress = ProgressDialog("Starting PAI...")
+
+    ui = PaiUI(args, config, ncolumns=options.ncolumns, rtl=options.rtl,
+               progress_queue=progress.queue)
+
+    run_in_gui_thread(ui.show)
 
 if __name__ == "__main__":
     parser = optparse.OptionParser(usage="%prog [options] images-or-something")
@@ -655,8 +749,13 @@ if __name__ == "__main__":
     config = Config()
     if os.path.exists(config_fn):
         config.load(config_fn)
-    ui = PaiUI(args, config, ncolumns=options.ncolumns, rtl=options.rtl)
-    ui.main()
+
+    gtk.threads_init()
+
+    threading.Thread(target=main, args=(args, options, config,)).start()
+
+    gtk.main()
+
     config.save(config_fn)
 
     raise SystemExit(0)
