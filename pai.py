@@ -809,7 +809,7 @@ def main():
     if os.path.exists(config_fn):
         config.load(config_fn)
 
-    gtk.threads_init()
+    gtk.gdk.threads_init()
 
     threading.Thread(target=start, args=(args, options, config,)).start()
 
