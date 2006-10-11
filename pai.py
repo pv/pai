@@ -169,7 +169,7 @@ def unpack_atool(archive, todir):
     if exitcode != 0:
         raise ValueError("Archive unpack failed")
 
-class RecursiveFileList:
+class RecursiveFileList(object):
     """Get a list of files in given sources, including contents of archives,
     which will be recursively unpacked."""
     
@@ -250,7 +250,7 @@ class RecursiveFileList:
 ## ImageCache / ImageView
 ##############################################################################
 
-class ImageCache:
+class ImageCache(object):
     def __init__(self, max_items=10):
         self.raw_pixbufs = {}
         self.scaled_pixbufs = {}
@@ -598,7 +598,7 @@ class Config(dict):
             if key:
                 f.write("%s\t%s\n" % (key, str(value)))
 
-class Bookmarks:
+class Bookmarks(object):
     def __init__(self, sources, config):
         if not isinstance(sources, list):
             sources = [sources]
@@ -626,7 +626,7 @@ class Bookmarks:
     def __getitem__(self, i):
         return self.values[i]
 
-class PaiUI:
+class PaiUI(object):
     def __init__(self, sources, config, rtl=False, ncolumns=2,
                  progress_dlg=None):
 
@@ -725,7 +725,7 @@ class PaiUI:
 ## Progress dialog
 ##############################################################################
 
-class ProgressDialog:
+class ProgressDialog(object):
     """A dialog box that reports progress.
 
     >>> dlg = ProgressDialog()
