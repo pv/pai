@@ -755,7 +755,8 @@ class ProgressDialog(object):
 
         self.queue = Queue.Queue()
         self.__listener = threading.Thread(target=self.__listener)
-        self.__listener.start()
+
+        run_in_gui_thread(self.__listener.start)
 
     def __listener(self):
         while True:
