@@ -151,13 +151,14 @@ def recursive_unpack(dirname, unpackers, progress_queue=None):
                                            for i in os.listdir(path)])
         elif os.path.isfile(path) and path in unpackers:
             if progress_queue: progress_queue.put(os.path.basename(path))
-            unpacker = unpackers[path]
             root, ext = os.path.splitext(path)
             tmpname = tempfile.mktemp(ext, '', os.path.dirname(path))
             shutil.move(path, tmpname)
             os.mkdir(path)
             try:
-                unpacker(tmpname, path)
+                for unpacker in unpackers[path]:
+                    ret = unpacker(tmpname, path)
+                    if ret is not None: break
                 os.unlink(tmpname)
                 pathlist.append(path)
             except:
@@ -171,26 +172,36 @@ def recursive_unpack(dirname, unpackers, progress_queue=None):
 
 def unpack_atool(archive, todir):
     """Unpack an archive using ``aunpack`` from ``atool``."""
+    print "ATOOOOOLLLL"
     exitcode = os.spawnlp(os.P_WAIT,
                           "aunpack",
                           "aunpack", "-X", todir, archive)
     if exitcode != 0:
         raise ValueError("Archive unpack failed")
+    return True
+
+def unpack_unzip(archive, todir):
+    """Unpack an archive using ``unzip``."""
+    exitcode = os.spawnlp(os.P_WAIT,
+                          "unzip", "-qq", "-o", "-d", todir, archive)
+    if exitcode != 0:
+        raise ValueError("Archive unpack failed")
+    return True
 
 class RecursiveFileList(object):
     """Get a list of files in given sources, including contents of archives,
     which will be recursively unpacked."""
     
     zip_extension_map = ExtensionMap({
-        '.zip': unpack_atool,
-        '.tar': unpack_atool,
-        '.tar.gz': unpack_atool,
-        '.tar.bz2': unpack_atool,
-        '.tbz': unpack_atool,
-        '.tb2': unpack_atool, 
-        '.tgz': unpack_atool,
-        '.rar': unpack_atool,
-        '.cbr': unpack_atool,
+        '.zip': (unpack_unzip, unpack_atool,),
+        '.tar': (unpack_atool,),
+        '.tar.gz': (unpack_atool,),
+        '.tar.bz2': (unpack_atool,),
+        '.tbz': (unpack_atool,),
+        '.tb2': (unpack_atool,),
+        '.tgz': (unpack_atool,),
+        '.rar': (unpack_atool,),
+        '.cbr': (unpack_atool,),
         })
 
     def __init__(self, filenames, extensionlist=None, progress_queue=None):
