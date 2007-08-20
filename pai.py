@@ -61,6 +61,14 @@ def run_in_gui_thread(func, *a, **kw):
     gobject.idle_add(timer)
     return None
 
+def run_later_in_gui_thread(delay, func, *a, **kw):
+    """Run the function in the GUI thread, after a delay"""
+    def timer():
+        func(*a, **kw)
+        return False
+    gobject.timeout_add(delay, timer)
+    return None
+
 def assert_gui_thread(func):
     """Assert that this function is ran in the GUI thread. [decorator]"""
     if not __debug__: return func
@@ -288,7 +296,7 @@ class ImageCache(object):
         self.add(filename)
         return self.raw_pixbufs[filename]
 
-    def get_scaled(self, filename, width, height):
+    def get_scaled(self, filename, width, height, rotated=False):
         self.add(filename)
         try:
             pixbuf = self.scaled_pixbufs[filename]
@@ -297,6 +305,9 @@ class ImageCache(object):
             return pixbuf
         except KeyError:
             pixbuf = self.raw_pixbufs[filename]
+            if rotated:
+                pixbuf = pixbuf.rotate_simple(
+                    gtk.gdk.PIXBUF_ROTATE_CLOCKWISE)
             if width != pixbuf.get_width() or height != pixbuf.get_height():
                 pixbuf = pixbuf.scale_simple(width, height,
                                              self.interpolation)
@@ -323,6 +334,7 @@ class ImageView(gtk.DrawingArea):
         self.text = u""
 
         self.unity_ratio = False
+        self.rotated = False
 
         @run_in_gui_thread
         def _():
@@ -358,13 +370,9 @@ class ImageView(gtk.DrawingArea):
         x, y, width, height = self.get_allocation()
 
         # draw some text
-        if not self.pango_context:
-            self.pango_context = self.create_pango_context()
-        if not self.pango_layout:
-            self.pango_layout = self.create_pango_layout(self.text)
-        self.pango_layout.set_text(self.text)
-        text_size = self.pango_layout.get_pixel_size()
+        text_size = self.__get_text_size_and_prepare_layout()
         height -= text_size[1]
+        
         self.window.draw_layout(self.get_style().white_gc, 0, 0,
                                 self.pango_layout,
                                 background=gtk.gdk.Color(0,0,0),
@@ -382,7 +390,19 @@ class ImageView(gtk.DrawingArea):
         if not isinstance(filenames, list):
             filenames = [filenames]
         x, y, width, height = self.get_allocation()
+        text_size = self.__get_text_size_and_prepare_layout()
+        height -= text_size[1]
         self.__get_files_to_show(filenames, width, height)
+
+    @assert_gui_thread
+    def __get_text_size_and_prepare_layout(self):
+        if not self.pango_context:
+            self.pango_context = self.create_pango_context()
+        if not self.pango_layout:
+            self.pango_layout = self.create_pango_layout(self.text)
+        self.pango_layout.set_text(self.text)
+        text_size = self.pango_layout.get_pixel_size()
+        return text_size
 
     @assert_gui_thread
     def __get_files_to_show(self, files, win_width, win_height):
@@ -398,6 +418,10 @@ class ImageView(gtk.DrawingArea):
             total_width += raw_pixbuf.get_width()
             total_height = max(raw_pixbuf.get_height(), total_height)
 
+        # FIXME: separate layout rotation from image rotation?
+        if self.rotated:
+            total_width, total_height = total_height, total_width
+
         available_width = win_width - self.xspacing*(len(files) - 1)
         available_height = win_height
 
@@ -412,20 +436,43 @@ class ImageView(gtk.DrawingArea):
             img_width = int(raw_pixbuf.get_width() * ratio)
             img_height = int(raw_pixbuf.get_height() * ratio)
 
-            pixbuf = self.cache.get_scaled(files[i], img_width, img_height)
-            if not xpos:
-                xpos.append(img_width + self.xspacing)
-            elif i == len(files) - 1:
-                xpos.append(xpos[-1] + img_width)
+            if self.rotated:
+                img_width, img_height = img_height, img_width
+
+            pixbuf = self.cache.get_scaled(files[i], img_width, img_height,
+                                           self.rotated)
+
+            # FIXME: separate layout rotation from image rotation?
+            if not self.rotated:
+                if not xpos:
+                    xpos.append(img_width + self.xspacing)
+                elif i == len(files) - 1:
+                    xpos.append(xpos[-1] + img_width)
+                else:
+                    xpos.append(xpos[-1] + img_width + self.xspacing)
+                ypos.append(.5*(win_height - img_height))
             else:
-                xpos.append(xpos[-1] + img_width + self.xspacing)
-            ypos.append(.5*(win_height - img_height))
+                if not ypos:
+                    ypos.append(img_height + self.xspacing)
+                elif i == len(files) - 1:
+                    ypos.append(ypos[-1] + img_height)
+                else:
+                    ypos.append(ypos[-1] + img_height + self.xspacing)
+                xpos.append(.5*(win_width - img_width))
+
             pixbufs.append(pixbuf)
 
-        xpos.insert(0, 0)
-        offset = .5*(win_width - xpos[-1] - xpos[0])
-        xpos = [x + offset for x in xpos]
-        xpos.pop()
+        # FIXME: separate layout rotation from image rotation?
+        if not self.rotated:
+            xpos.insert(0, 0)
+            offset = .5*(win_width - xpos[-1] - xpos[0])
+            xpos = [x + offset for x in xpos]
+            xpos.pop()
+        else:
+            ypos.insert(0, 0)
+            offset = .5*(win_height - ypos[-1] - ypos[0])
+            ypos = [y + offset for y in ypos]
+            ypos.pop()
         
         return zip(xpos, ypos, pixbufs)
 
@@ -472,6 +519,7 @@ class CollectionUI(ImageView):
         self.pos = 0
         self.rtl = rtl
         self.ncolumns = ncolumns
+        self.preload_id = 0
 
         run_in_gui_thread(self.connect, "map-event", self.__map_event)
 
@@ -530,7 +578,9 @@ class CollectionUI(ImageView):
         if self.pos < 0:
             self.pos = 0
 
-    def preload(self, files):
+    def preload(self, files, preload_id=0):
+        if preload_id != self.preload_id:
+            return # expired preload request
         preload_files = self.__get_preload_files()
         for i in range(0, len(preload_files), self.ncolumns):
             j = i + self.ncolumns
@@ -538,10 +588,17 @@ class CollectionUI(ImageView):
                 preload_files += [preload_files[-1]] * self.ncolumns
             ImageView.preload(self, preload_files[i:j])
 
+    def schedule_preload(self, delay=750):
+        self.preload_id += 1
+        run_later_in_gui_thread(delay,
+                                self.preload,
+                                self.__get_preload_files(),
+                                self.preload_id)
+
     @assert_gui_thread
     def do_expose_event(self, event):
         ImageView.do_expose_event(self, event)
-        run_in_gui_thread(self.preload, self.__get_preload_files())
+        self.schedule_preload()
 
     def __update_position(self):
         files = self.__get_show_files()
@@ -554,7 +611,7 @@ class CollectionUI(ImageView):
             unicode(', '.join(filenames), "latin-1"))
         self.set_files(files)
 
-        run_in_gui_thread(self.preload, self.__get_preload_files())
+        self.schedule_preload()
 
     def __get_show_files(self):
         endpos = self.pos + self.ncolumns
@@ -638,7 +695,7 @@ class PaiUI(object):
         self.bookmarks = Bookmarks(self.collection.sources, self.config)
         self.collection.goto(self.bookmarks[0])
 
-        self.fullscreen = False#True
+        self.fullscreen = False
         
         @run_in_gui_thread
         def _():
@@ -658,49 +715,66 @@ class PaiUI(object):
         
     @assert_gui_thread
     def key_press_event(self, widget, event):
-        if event.keyval == gtk.keysyms.q:
+        if event.keyval in (gtk.keysyms.q, gtk.keysyms.Escape):
             self.close()
-        elif event.keyval == gtk.keysyms.space:
+
+        elif event.keyval in (gtk.keysyms.space, gtk.keysyms.Return):
             self.collection.next_screen()
+
         elif event.keyval == gtk.keysyms.b:
             self.collection.previous_screen()
+
         elif event.keyval == gtk.keysyms.Home:
             self.collection.first()
+
         elif event.keyval == gtk.keysyms.Left:
             if not self.collection.rtl:
                 self.collection.previous()
             else:
                 self.collection.next()
+
         elif event.keyval == gtk.keysyms.Right:
             if not self.collection.rtl:
                 self.collection.next()
             else:
                 self.collection.previous()
+
         elif event.keyval == gtk.keysyms.End:
             self.collection.last()
-        elif event.keyval == gtk.keysyms.Prior:
+
+        elif event.keyval in (gtk.keysyms.Prior, gtk.keysyms.Up):
             self.collection.previous_screen(10)
-        elif event.keyval == gtk.keysyms.Next:
+
+        elif event.keyval in (gtk.keysyms.Next, gtk.keysyms.Down):
             self.collection.next_screen(10)
+
         elif event.keyval == gtk.keysyms.r:
             self.collection.rtl = not self.collection.rtl
             self.collection.update_view()
+
         elif event.keyval == gtk.keysyms.d:
             if self.collection.ncolumns > 1:
                 self.collection.ncolumns = 1
             else:
                 self.collection.ncolumns = 2
             self.collection.update_view()
+
         elif event.keyval == gtk.keysyms.u:
             self.collection.unity_ratio = not self.collection.unity_ratio
             self.collection.update_view()
-        elif event.keyval == gtk.keysyms.f:
+
+        elif event.keyval in (gtk.keysyms.o, gtk.keysyms.F4):
+            self.collection.rotated = not self.collection.rotated
+            self.collection.update_view()
+
+        elif event.keyval in (gtk.keysyms.f, gtk.keysyms.F6):
             if not self.fullscreen:
                 self.window.fullscreen()
                 self.fullscreen = True
             else:
                 self.window.unfullscreen()
                 self.fullscreen = False
+        
         elif event.keyval == gtk.keysyms.i:
             if self.collection.get_interpolation() == gtk.gdk.INTERP_BILINEAR:
                 self.collection.set_interpolation(gtk.gdk.INTERP_HYPER)
