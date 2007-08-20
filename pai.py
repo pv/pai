@@ -26,13 +26,13 @@ import threading, Queue
 IMAGE_EXTENSIONS = [ '.jpg', '.gif', '.png', '.tif', '.tiff', '.bmp' ]
 
 ##############################################################################
-## GUI threading
+## GUI threading helpers
 ##############################################################################
 #
 # Every time you call a non-threadsafe GTK function (=most of them),
 # be sure that either
 # 1. The function where you make the call has @assert_gui_thread, OR,
-# 2. You make the call via run_in_gui_thread
+# 2. You make the call via run_in_gui_thread or run_later_in_gui_thread
 #
 # Blocks to run in gui thread sometime later (as a shorthand) can be
 # specified via
