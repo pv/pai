@@ -578,27 +578,59 @@ class CollectionUI(ImageView):
         run_in_gui_thread(self.connect, "map-event", self.__map_event)
 
     def next(self, count=1):
-        self.offset = [0,-1e9]
+        last_pos = self.pos
         self.pos += count
         self.__limit_position()
+        if last_pos == self.pos: return
+
+        if not self.rtl:
+            self.offset = [-1e9,-1e9]
+        else:
+            self.offset = [+1e9,-1e9]
+        if self.rotated:
+            self.offset.reverse()
         self.__update_position()
 
     def previous(self, count=1):
-        self.offset = [0,1e9]
+        last_pos = self.pos
         self.pos -= count
         self.__limit_position()
+        if last_pos == self.pos: return
+
+        if not self.rtl:
+            self.offset = [+1e9,1e9]
+        else:
+            self.offset = [-1e9,1e9]
+        if self.rotated:
+            self.offset.reverse()
         self.__update_position()
 
     def next_screen(self, count=1):
-        self.offset = [0,-1e9]
+        last_pos = self.pos
         self.pos += self.ncolumns*count
         self.__limit_position()
+        if last_pos == self.pos: return
+
+        if not self.rtl:
+            self.offset = [-1e9,-1e9]
+        else:
+            self.offset = [+1e9,-1e9]
+        if self.rotated:
+            self.offset.reverse()
         self.__update_position()
 
     def previous_screen(self, count=1):
-        self.offset = [0,1e9]
+        last_pos = self.pos
         self.pos -= self.ncolumns*count
         self.__limit_position()
+        if last_pos == self.pos: return
+
+        if not self.rtl:
+            self.offset = [+1e9,1e9]
+        else:
+            self.offset = [-1e9,1e9]
+        if self.rotated:
+            self.offset.reverse()
         self.__update_position()
 
     def adjust_zoom(self, step):
@@ -637,8 +669,10 @@ class CollectionUI(ImageView):
         self.normalize_offset()
 
         # did pan or hit edge?
-        panned = (abs(self.offset[0]-last_offset[0]) > 2 or
-                  abs(self.offset[1]-last_offset[1]) > 2)
+        xmin = self.screen_size[0]/20 + 3
+        ymin = self.screen_size[1]/20 + 3
+        panned = (abs(self.offset[0]-last_offset[0]) > xmin or
+                  abs(self.offset[1]-last_offset[1]) > ymin)
         return panned
 
     def goto(self, i):
