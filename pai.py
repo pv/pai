@@ -194,7 +194,6 @@ def recursive_unpack(dirname, unpackers, progress_queue=None):
 
 def unpack_atool(archive, todir):
     """Unpack an archive using ``aunpack`` from ``atool``."""
-    print "ATOOOOOLLLL"
     exitcode = os.spawnlp(os.P_WAIT,
                           "aunpack",
                           "aunpack", "-X", todir, archive)
@@ -206,6 +205,21 @@ def unpack_unzip(archive, todir):
     """Unpack an archive using ``unzip``."""
     exitcode = os.spawnlp(os.P_WAIT,
                           "unzip", "-qq", "-o", "-d", todir, archive)
+    if exitcode != 0:
+        raise ValueError("Archive unpack failed")
+    return True
+
+def unpack_unzip(archive, todir):
+    """Unpack an archive using ``unrar``."""
+    pwd = os.getcwd()
+    archive = os.path.abspath(archive)
+    try:
+        os.chdir(todir)
+        exitcode = os.spawnlp(os.P_WAIT,
+                              "unrar", "x", "-y", archive)
+    finally:
+        os.chdir(pwd)
+    
     if exitcode != 0:
         raise ValueError("Archive unpack failed")
     return True
@@ -222,7 +236,7 @@ class RecursiveFileList(object):
         '.tbz': (unpack_atool,),
         '.tb2': (unpack_atool,),
         '.tgz': (unpack_atool,),
-        '.rar': (unpack_atool,),
+        '.rar': (unpack_unrar, unpack_atool,),
         '.cbr': (unpack_atool,),
         })
 
