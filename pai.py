@@ -179,7 +179,7 @@ def recursive_unpack(dirname, unpackers, progress_queue=None):
             os.mkdir(path)
             try:
                 for unpacker in unpackers[path]:
-                    ret = unpacker(tmpname, path)
+                    ret = unpacker(tmpname, os.path.abspath(path))
                     if ret is not None: break
                 os.unlink(tmpname)
                 pathlist.append(path)
@@ -209,10 +209,25 @@ def unpack_unzip(archive, todir):
         raise ValueError("Archive unpack failed")
     return True
 
-def unpack_unzip(archive, todir):
+def unpack_tar(archive, todir):
+    """Unpack an archive using ``tar``."""
+    exitcode = os.spawnlp(os.P_WAIT,
+                          "tar", "x", "-C", todir, archive)
+    if exitcode != 0:
+        raise ValueError("Archive unpack failed")
+    return True
+
+def unpack_tar_z(archive, todir):
+    """Unpack an archive using ``tar``."""
+    exitcode = os.spawnlp(os.P_WAIT,
+                          "tar", "xz", "-C", todir, archive)
+    if exitcode != 0:
+        raise ValueError("Archive unpack failed")
+    return True
+
+def unpack_unrar(archive, todir):
     """Unpack an archive using ``unrar``."""
     pwd = os.getcwd()
-    archive = os.path.abspath(archive)
     try:
         os.chdir(todir)
         exitcode = os.spawnlp(os.P_WAIT,
@@ -230,12 +245,12 @@ class RecursiveFileList(object):
     
     zip_extension_map = ExtensionMap({
         '.zip': (unpack_unzip, unpack_atool,),
-        '.tar': (unpack_atool,),
-        '.tar.gz': (unpack_atool,),
+        '.tar': (unpack_tar, unpack_atool,),
+        '.tar.gz': (unpack_tar_z, unpack_atool,),
         '.tar.bz2': (unpack_atool,),
         '.tbz': (unpack_atool,),
         '.tb2': (unpack_atool,),
-        '.tgz': (unpack_atool,),
+        '.tgz': (unpack_tar_z, unpack_atool,),
         '.rar': (unpack_unrar, unpack_atool,),
         '.cbr': (unpack_atool,),
         })
