@@ -26,6 +26,23 @@ import threading, Queue
 IMAGE_EXTENSIONS = [ '.jpg', '.gif', '.png', '.tif', '.tiff', '.bmp' ]
 
 ##############################################################################
+## Detect Maemo/Hildon
+##############################################################################
+
+try:
+    import hildon
+    HILDON = True
+except ImportError:
+    HILDON = False
+
+if HILDON:
+    DEFAULT_COLUMNS = 1
+    MAX_IMAGE_CACHE = 4
+else:
+    DEFAULT_COLUMNS = 2
+    MAX_IMAGE_CACHE = 10
+
+##############################################################################
 ## GUI threading helpers
 ##############################################################################
 #
@@ -270,7 +287,7 @@ class RecursiveFileList(object):
 ##############################################################################
 
 class ImageCache(object):
-    def __init__(self, max_items=10):
+    def __init__(self, max_items=MAX_IMAGE_CACHE):
         self.raw_pixbufs = {}
         self.scaled_pixbufs = {}
         self.filenames = []
@@ -970,7 +987,7 @@ def main():
     parser.add_option("-l", "--ltr", action="store_false", dest="rtl",
                       help="show images in left-to-right order")
     parser.add_option("-c", "--columns", type="int", dest="ncolumns",
-                      help="show images in N columns", default=2)
+                      help="show images in N columns", default=DEFAULT_COLUMNS)
     options, args = parser.parse_args()
 
     if len(args) < 1:
