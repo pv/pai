@@ -344,8 +344,11 @@ class ImageView(gtk.DrawingArea):
 
         self.text = u""
 
-        self.unity_ratio = False
         self.rotated = False
+        self.zoom_ratio = 1.0
+        self.offset = [0, 0]
+        self.limits = [0, 0]
+        self.screen_size = [0, 0]
 
         @run_in_gui_thread
         def _():
@@ -392,7 +395,10 @@ class ImageView(gtk.DrawingArea):
         # render image
         to_show = self.__get_files_to_show(self.filenames, width, height)
         for xpos, ypos, pixbuf in to_show:
-            self.blit_image(pixbuf, xpos, text_size[1] + ypos, event.area)
+            self.blit_image(pixbuf,
+                            xpos - self.offset[0],
+                            ypos - self.offset[1] + text_size[1],
+                            event.area)
 
     @assert_gui_thread
     def preload(self, filenames):
@@ -438,9 +444,7 @@ class ImageView(gtk.DrawingArea):
 
         ratio = min(available_width / total_width,
                     available_height / total_height)
-
-        if self.unity_ratio:
-            ratio = 1
+        ratio *= self.zoom_ratio
 
         for i in range(len(files)):
             raw_pixbuf = self.cache.get(files[i])
@@ -484,6 +488,9 @@ class ImageView(gtk.DrawingArea):
             offset = .5*(win_height - ypos[-1] - ypos[0])
             ypos = [y + offset for y in ypos]
             ypos.pop()
+
+        self.limits = [total_width*ratio, total_height*ratio]
+        self.screen_size = [available_width, available_height]
         
         return zip(xpos, ypos, pixbufs)
 
@@ -553,6 +560,52 @@ class CollectionUI(ImageView):
         self.pos -= self.ncolumns*count
         self.__limit_position()
         self.__update_position()
+
+    def adjust_zoom(self, step):
+        scales = [1, 2, 4]
+
+        try:
+            j0 = scales.index(self.zoom_ratio)
+        except ValueError:
+            j0 = 0
+
+        try:
+            self.zoom_ratio = scales[j0 + step]
+        except IndexError:
+            if step > 0:
+                self.zoom_ratio = scales[-1]
+            else:
+                self.zoom_ratio = scales[0]
+
+        self.offset = [0, 0]
+    
+    def pan_around(self, dx, dy):
+        """
+        Pan the screen (dx, dy) half-screens.
+        
+        :Returns: True if position changed, false is screen limits hit.
+        """
+        xstep = self.screen_size[0]/2
+        ystep = self.screen_size[1]/2
+
+        last_offset = [self.offset[0],
+                       self.offset[1]]
+        
+        self.offset[0] += dx*xstep
+        self.offset[1] += dy*ystep
+
+        def limit(x, a, b):
+            return min(max(x, a), b)
+
+        for j in 0, 1:
+            self.offset[j] = limit(self.offset[j],
+                                   min(0, -self.limits[j]/2 + self.screen_size[j]/2),
+                                   max(0, +self.limits[j]/2 - self.screen_size[j]/2))
+
+        # did pan or hit edge?
+        panned = (abs(self.offset[0]-last_offset[0]) > 2 or
+                  abs(self.offset[1]-last_offset[1]) > 2)
+        return panned
 
     def goto(self, i):
         self.pos = i
@@ -738,25 +791,53 @@ class PaiUI(object):
         elif event.keyval == gtk.keysyms.Home:
             self.collection.first()
 
-        elif event.keyval == gtk.keysyms.Left:
-            if not self.collection.rtl:
-                self.collection.previous()
-            else:
-                self.collection.next()
-
-        elif event.keyval == gtk.keysyms.Right:
-            if not self.collection.rtl:
-                self.collection.next()
-            else:
-                self.collection.previous()
-
         elif event.keyval == gtk.keysyms.End:
             self.collection.last()
 
-        elif event.keyval in (gtk.keysyms.Prior, gtk.keysyms.Up):
+        elif event.keyval == gtk.keysyms.Left:
+            if not self.collection.pan_around(-1, 0):
+                if not self.collection.rotated:
+                    if not self.collection.rtl:
+                        self.collection.previous()
+                    else:
+                        self.collection.next()
+            else:
+                self.collection.update_view()
+
+        elif event.keyval == gtk.keysyms.Right:
+            if not self.collection.pan_around(1, 0):
+                if not self.collection.rotated:
+                    if not self.collection.rtl:
+                        self.collection.next()
+                    else:
+                        self.collection.previous()
+            else:
+                self.collection.update_view()
+
+        elif event.keyval == gtk.keysyms.Up:
+            if not self.collection.pan_around(0, -1):
+                if self.collection.rotated:
+                    if not self.collection.rtl:
+                        self.collection.previous()
+                    else:
+                        self.collection.next()
+            else:
+                self.collection.update_view()
+
+        elif event.keyval == gtk.keysyms.Down:
+            if not self.collection.pan_around(0, 1):
+                if self.collection.rotated:
+                    if not self.collection.rtl:
+                        self.collection.next()
+                    else:
+                        self.collection.previous()
+            else:
+                self.collection.update_view()
+
+        elif event.keyval == gtk.keysyms.Prior:
             self.collection.previous_screen(10)
 
-        elif event.keyval in (gtk.keysyms.Next, gtk.keysyms.Down):
+        elif event.keyval == gtk.keysyms.Next:
             self.collection.next_screen(10)
 
         elif event.keyval == gtk.keysyms.r:
@@ -772,6 +853,14 @@ class PaiUI(object):
 
         elif event.keyval == gtk.keysyms.u:
             self.collection.unity_ratio = not self.collection.unity_ratio
+            self.collection.update_view()
+
+        elif event.keyval in (gtk.keysyms.plus, gtk.keysyms.F7):
+            self.collection.adjust_zoom(1)
+            self.collection.update_view()
+
+        elif event.keyval in (gtk.keysyms.minus, gtk.keysyms.F8):
+            self.collection.adjust_zoom(-1)
             self.collection.update_view()
 
         elif event.keyval in (gtk.keysyms.o, gtk.keysyms.F4):
