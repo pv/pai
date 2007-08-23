@@ -10,6 +10,9 @@ Picture archive inspector
 
 :Author: Pauli Virtanen <pav@iki.fi>
 """
+
+# Sorry, the code is slowly becoming a mess...
+
 from __future__ import division
 
 import sys, os, shutil, tempfile, re, random, time, traceback, copy
@@ -37,10 +40,12 @@ except ImportError:
 
 if HILDON:
     DEFAULT_COLUMNS = 1
-    MAX_IMAGE_CACHE = 4
+    MAX_IMAGE_CACHE = 2
+    DO_PRELOADING = True
 else:
     DEFAULT_COLUMNS = 2
     MAX_IMAGE_CACHE = 10
+    DO_PRELOADING = True
 
 ##############################################################################
 ## GUI threading helpers
@@ -375,6 +380,15 @@ class ImageView(gtk.DrawingArea):
             style.bg[gtk.STATE_NORMAL] = gtk.gdk.Color(0, 0, 0)
             self.set_style(style)
 
+    def normalize_offset(self):
+        def limit(x, a, b):
+            return min(max(x, a), b)
+        for j in 0, 1:
+            self.offset[j] = limit(
+                self.offset[j],
+                min(0, -self.limits[j]/2 + self.screen_size[j]/2),
+                max(0, +self.limits[j]/2 - self.screen_size[j]/2))
+
     def set_files(self, filenames):
         self.filenames = filenames
         run_in_gui_thread(self.queue_resize)
@@ -410,6 +424,7 @@ class ImageView(gtk.DrawingArea):
                                 foreground=gtk.gdk.Color(65535,65535,65535))
  
         # render image
+        self.normalize_offset()
         to_show = self.__get_files_to_show(self.filenames, width, height)
         for xpos, ypos, pixbuf in to_show:
             self.blit_image(pixbuf,
@@ -419,8 +434,12 @@ class ImageView(gtk.DrawingArea):
 
     @assert_gui_thread
     def preload(self, filenames):
+        if not DO_PRELOADING:
+            return
+        
         if not self.window or not self.window.is_visible():
             return
+        
         if not isinstance(filenames, list):
             filenames = [filenames]
         x, y, width, height = self.get_allocation()
@@ -559,27 +578,31 @@ class CollectionUI(ImageView):
         run_in_gui_thread(self.connect, "map-event", self.__map_event)
 
     def next(self, count=1):
+        self.offset = [0,-1e9]
         self.pos += count
         self.__limit_position()
         self.__update_position()
 
     def previous(self, count=1):
+        self.offset = [0,1e9]
         self.pos -= count
         self.__limit_position()
         self.__update_position()
 
     def next_screen(self, count=1):
+        self.offset = [0,-1e9]
         self.pos += self.ncolumns*count
         self.__limit_position()
         self.__update_position()
 
     def previous_screen(self, count=1):
+        self.offset = [0,1e9]
         self.pos -= self.ncolumns*count
         self.__limit_position()
         self.__update_position()
 
     def adjust_zoom(self, step):
-        scales = [1, 2, 4]
+        scales = [1, 1.5, 2]
 
         try:
             j0 = scales.index(self.zoom_ratio)
@@ -611,13 +634,7 @@ class CollectionUI(ImageView):
         self.offset[0] += dx*xstep
         self.offset[1] += dy*ystep
 
-        def limit(x, a, b):
-            return min(max(x, a), b)
-
-        for j in 0, 1:
-            self.offset[j] = limit(self.offset[j],
-                                   min(0, -self.limits[j]/2 + self.screen_size[j]/2),
-                                   max(0, +self.limits[j]/2 - self.screen_size[j]/2))
+        self.normalize_offset()
 
         # did pan or hit edge?
         panned = (abs(self.offset[0]-last_offset[0]) > 2 or
@@ -708,7 +725,11 @@ class CollectionUI(ImageView):
 
     def __get_preload_files(self):
         files = []
-        for i in range(-self.ncolumns, 2*self.ncolumns+1, 1):
+
+        ranges = (range(0, 2*self.ncolumns+1, 1)
+                  + range(-self.ncolumns,0,1))
+        
+        for i in ranges[:MAX_IMAGE_CACHE]:
             if 0 <= self.pos + i < len(self.filelist):
                 files.append(self.filelist[self.pos + i])
         return files
@@ -818,6 +839,8 @@ class PaiUI(object):
                         self.collection.previous()
                     else:
                         self.collection.next()
+                elif self.collection.zoom_ratio == 1:
+                    self.collection.next_screen(10)
             else:
                 self.collection.update_view()
 
@@ -828,6 +851,8 @@ class PaiUI(object):
                         self.collection.next()
                     else:
                         self.collection.previous()
+                elif self.collection.zoom_ratio == 1:
+                    self.collection.previous_screen(10)
             else:
                 self.collection.update_view()
 
@@ -838,6 +863,8 @@ class PaiUI(object):
                         self.collection.previous()
                     else:
                         self.collection.next()
+                elif self.collection.zoom_ratio == 1:
+                    self.collection.previous_screen(10)
             else:
                 self.collection.update_view()
 
@@ -848,6 +875,8 @@ class PaiUI(object):
                         self.collection.next()
                     else:
                         self.collection.previous()
+                elif self.collection.zoom_ratio == 1:
+                    self.collection.next_screen(10)
             else:
                 self.collection.update_view()
 
