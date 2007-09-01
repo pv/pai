@@ -343,7 +343,11 @@ class ImageCache(object):
             except KeyError:
                 pass
             del self.filenames[0]
-            gc.collect()
+# FIXME: for some reason the following gc.collect() wreaks havoc on
+#        pygtk 2.11.0-0ubuntu1 (worked on 2.10.4), and results to PaiUI
+#        losing its __dict__! I have no clue what's going on.
+#
+#            gc.collect()
 
         # load image
         raw_pixbuf = gtk.gdk.pixbuf_new_from_file(filename)
@@ -374,9 +378,7 @@ class ImageCache(object):
                 pixbuf = pixbuf.scale_simple(width, height,
                                              self.interpolation)
             self.scaled_pixbufs[filename] = pixbuf
-# FIXME: for some reason the following gc.collect() wreaks havoc on
-#        pygtk 2.11.0-0ubuntu1 (worked on 2.10.4), and results to PaiUI
-#        losing its __dict__! I have no clue what's going on.
+# FIXME: same problem with gc.collect() as above!
 #
 #            gc.collect()
             return pixbuf
