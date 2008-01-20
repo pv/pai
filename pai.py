@@ -346,7 +346,7 @@ class ImageCache(object):
 #
 #            gc.collect()
 
-        # load image (aargh, gtk.gdk.PixbufLoader doesn't work in a thread)
+        # load image (aargh, gtk.gdk.PixbufLoader doesn't work properly...)
         if os.path.isfile(filename):
             raw_pixbuf = gtk.gdk.pixbuf_new_from_file(filename)
         else:
