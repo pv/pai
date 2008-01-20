@@ -105,6 +105,10 @@ def assert_gui_thread(func):
 ## Image list / recursive archive unpack
 ##############################################################################
 
+import zipfile
+import tarfile
+import subprocess
+
 class ExtensionMap(dict):
     def __init__(self, dictionary=None):
         dict.__init__(self)
@@ -148,167 +152,153 @@ def numeric_file_sort(filelist):
     lst.sort(key=sort_key)
     return lst
 
-def recursive_unpack(dirname, unpackers, progress_queue=None):
-    """Unpack all archives in dirname and return a file list."""
+class DummyUnpacker(object):
+    def __init__(self, archive_filename):
+        self.archive = archive_filename
+        self._files = None
+
+    @property
+    def files(self):
+        """Return a list of full pathnames to the archive"""
+        if self._files is None:
+            self._files = self._get_files()
+        return self._files
+
+    def _get_files(self):
+        return [self.archive]
+
+    def open_file(self, name):
+        """Open a file in the archive"""
+        return open(self.archive, 'r')
+
+    def _prefix_archive(self, lst):
+        return [self.archive + os.path.sep + fn for fn in lst]
+
+    def _unprefix_archive(self, name):
+        if not os.path.commonprefix([name, self.archive]) == self.archive:
+            raise ValueError("File not in archive!")
+        return name[len(self.archive)+1:]
+    
+class ZipUnpacker(DummyUnpacker):
+    def _get_files(self):
+        f = zipfile.ZipFile(self.archive, 'r')
+        try:
+            return self._prefix_archive(f.namelist())
+        finally:
+            f.close()
+
+    def open_file(self, name):
+        name = self._unprefix_archive(name)
+        f = zipfile.ZipFile(self.archive, 'r')
+        try:
+            return f.read(name)
+        finally:
+            f.close()
+
+class TarUnpacker(DummyUnpacker):
+    def _get_files(self):
+        f = tarfile.open(self.archive_filename, 'r')
+        try:
+            return self._prefix_archive(f.getnames())
+        finally:
+            f.close()
+
+    def open_file(self, name):
+        name = self._unprefix_archive(name)
+        f = tarfile.open(self.archive_filename, 'r')
+        try:
+            return f.extractfile(name).read()
+        except:
+            f.close()
+
+class RarUnpacker(DummyUnpacker):
+    def _get_files(self):
+        p = subprocess.Popen(["unrar", "vb", self.archive],
+                             stdout=subprocess.PIPE,
+                             stdin=subprocess.PIPE)
+        out, err = p.communicate()
+        lst = [fn.strip() for fn in out.split("\n") if fn.strip()]
+        return self._prefix_archive(lst)
+    
+    def open_file(self, name):
+        tmpdir = tempfile.mkdtemp()
+        name = self._unprefix_archive(name)
+
+        p = subprocess.Popen(["unrar", "e", self.archive, name,
+                              tmpdir + os.path.sep],
+                             stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+        p.communicate()
+        
+        try:
+            basename = os.path.basename(name)
+            return open(os.path.join(tmpdir, basename), 'r')
+        finally:
+            shutil.rmtree(tmpdir)
+
+def recursive_find(dirname, unpackers, progress_queue=None):
+    """Return all files under dirname, with associated unpackers (if any)."""
     pathlist = [ os.path.abspath(dirname) ]
     files = []
-
+    file_unpackers = {}
+    
     while len(pathlist) > 0:
         path = pathlist[0]
         del pathlist[0]
-
+        
         if os.path.isdir(path):
             if progress_queue: progress_queue.put(os.path.basename(path))
-            if os.path.islink(path):
-                items = os.listdir(path)
-                target = os.path.join(os.path.join(path, os.path.pardir),
-                                      os.readlink(path))
-                os.unlink(path)
-                os.mkdir(path)
-                for item in items:
-                    os.symlink(os.path.join(target, item),
-                               os.path.join(path, item))
-                
-            pathlist += numeric_file_sort([os.path.join(path, i)
-                                           for i in os.listdir(path)])
+
+            for fn in reversed(numeric_file_sort([os.path.join(path, i)
+                                                  for i in os.listdir(path)])):
+                pathlist.insert(0, fn)
         elif os.path.isfile(path) and path in unpackers:
             if progress_queue: progress_queue.put(os.path.basename(path))
-            root, ext = os.path.splitext(path)
-            tmpname = tempfile.mktemp(ext, '', os.path.dirname(path))
-            shutil.move(path, tmpname)
-            os.mkdir(path)
-            try:
-                for unpacker in unpackers[path]:
-                    ret = unpacker(tmpname, os.path.abspath(path))
-                    if ret is not None: break
-                os.unlink(tmpname)
-                pathlist.append(path)
-            except:
-                # unpack failed for some reason... do not do it then
-                os.rmdir(path)
-                shutil.move(tmpname, path)
+            unpacker = unpackers[path](os.path.abspath(path))
+
+            add_list = numeric_file_sort(unpacker.files)
+            for fn in add_list:
+                file_unpackers[fn] = unpacker
+            files += add_list
         else:
             files.append(path)
-
-    return files
-
-def unpack_atool(archive, todir):
-    """Unpack an archive using ``aunpack`` from ``atool``."""
-    exitcode = os.spawnlp(os.P_WAIT,
-                          "aunpack",
-                          "aunpack", "-X", todir, archive)
-    if exitcode != 0:
-        raise ValueError("Archive unpack failed")
-    return True
-
-def unpack_unzip(archive, todir):
-    """Unpack an archive using ``unzip``."""
-    exitcode = os.spawnlp(os.P_WAIT,
-                          "unzip", "-qq", "-o", "-d", todir, archive)
-    if exitcode != 0:
-        raise ValueError("Archive unpack failed")
-    return True
-
-def unpack_tar(archive, todir):
-    """Unpack an archive using ``tar``."""
-    exitcode = os.spawnlp(os.P_WAIT,
-                          "tar", "x", "-C", todir, archive)
-    if exitcode != 0:
-        raise ValueError("Archive unpack failed")
-    return True
-
-def unpack_tar_z(archive, todir):
-    """Unpack an archive using ``tar``."""
-    exitcode = os.spawnlp(os.P_WAIT,
-                          "tar", "xz", "-C", todir, archive)
-    if exitcode != 0:
-        raise ValueError("Archive unpack failed")
-    return True
-
-def unpack_unrar(archive, todir):
-    """Unpack an archive using ``unrar``."""
-    pwd = os.getcwd()
-    try:
-        os.chdir(todir)
-        exitcode = os.spawnlp(os.P_WAIT,
-                              "unrar", "x", "-y", archive)
-    finally:
-        os.chdir(pwd)
     
-    if exitcode != 0:
-        raise ValueError("Archive unpack failed")
-    return True
+    return files, file_unpackers
 
-class RecursiveFileList(object):
+class FileList(object):
     """Get a list of files in given sources, including contents of archives,
     which will be recursively unpacked."""
     
     zip_extension_map = ExtensionMap({
-        '.zip': (unpack_unzip, unpack_atool,),
-        '.tar': (unpack_tar, unpack_atool,),
-        '.tar.gz': (unpack_tar_z, unpack_atool,),
-        '.tar.bz2': (unpack_atool,),
-        '.tbz': (unpack_atool,),
-        '.tb2': (unpack_atool,),
-        '.tgz': (unpack_tar_z, unpack_atool,),
-        '.rar': (unpack_unrar, unpack_atool,),
-        '.cbr': (unpack_atool,),
+        '.zip': ZipUnpacker,
+        '.tar': TarUnpacker,
+        '.tar.gz': TarUnpacker,
+        '.tar.bz2': TarUnpacker,
+        '.tbz': TarUnpacker,
+        '.tb2': TarUnpacker,
+        '.tgz': TarUnpacker,
+        '.rar': RarUnpacker,
         })
 
     def __init__(self, filenames, extensionlist=None, progress_queue=None):
         if not isinstance(filenames, list):
             filenames = [filenames]
         
-        self._cache_dir = tempfile.mkdtemp()
-
-        # Link seed files
-        self.sources = []
+        # Recursive find
+        self._files = []
+        self._file_unpackers = {}
         for filename in filenames:
-            try:
-                absfilename = os.path.abspath(filename)
-                targetname = os.path.join(self._cache_dir,
-                                          os.path.basename(absfilename))
-                os.symlink(absfilename, targetname)
-                self.sources.append([absfilename, targetname])
-            except OSError:
-                traceback.print_exc()
-
-        # Recursive unpack
-        self._files = recursive_unpack(self._cache_dir,
-                                       RecursiveFileList.zip_extension_map,
-                                       progress_queue)
-
-        # List
-        self._files = [i for i in self._files
-                       if os.path.exists(i) ]
+            fns, ups = recursive_find(filename, FileList.zip_extension_map,
+                                      progress_queue)
+            self._files += fns
+            self._file_unpackers.update(ups)
         
         if extensionlist:
             self._files = [i for i in self._files
-                           if i[-4:].lower() in extensionlist]
-
-    def close(self):
-        import shutil
-        if self._cache_dir:
-            shutil.rmtree(self._cache_dir)
-        self._cache_dir = None
-        self._files = None
+                           if os.path.splitext(i)[1].lower() in extensionlist]
 
     def __str__(self):
         return str(self._files)
-
-    def __del__(self):
-        self.close()
-
-    def filename(self, i):
-        return self.to_filename(self._files[i])
-
-    def to_filename(self, fn):
-        for non_cached, cached in self.sources:
-            if os.path.commonprefix([fn, cached]) == cached:
-                fn = non_cached + fn[len(cached):]
-                return fn
-        return fn
-
+    
     def __getitem__(self, i):
         return self._files[i]
 
@@ -316,8 +306,11 @@ class RecursiveFileList(object):
         return len(self._files)
 
     def open_file(self, fn):
-        return open(fn, 'r')
-
+        unpacker = self._file_unpackers.get(fn)
+        if unpacker:
+            return unpacker.open_file(fn)
+        else:
+            return open(fn, 'r')
 
 ##############################################################################
 ## ImageCache / ImageView
@@ -356,10 +349,13 @@ class ImageCache(object):
         # load image
         loader = gtk.gdk.PixbufLoader()
         fh = self.filelist.open_file(filename)
-        try:
-            shutil.copyfileobj(fh, loader)
-        finally:
-            fh.close()
+        if isinstance(fh, str):
+            loader.write(fh)
+        else:
+            try:
+                shutil.copyfileobj(fh, loader)
+            finally:
+                fh.close()
         loader.close()
         raw_pixbuf = loader.get_pixbuf()
         self.filenames.append(filename)
@@ -610,8 +606,8 @@ class CollectionUI(ImageView):
     def __init__(self, sources, ncolumns=1, rtl=False, progress_dlg=None):
         self.sources = [ os.path.realpath(p) for p in sources
                          if os.path.exists(p) ]
-        self.filelist = RecursiveFileList(self.sources, IMAGE_EXTENSIONS,
-                                          progress_dlg.queue)
+        self.filelist = FileList(self.sources, IMAGE_EXTENSIONS,
+                                 progress_dlg.queue)
         progress_dlg.close()
         
         self.cache = ImageCache(self.filelist)
@@ -781,7 +777,7 @@ class CollectionUI(ImageView):
 
     def __update_position(self):
         files = self.__get_show_files()
-        filenames = [ self.filelist.to_filename(f) for f in files ]
+        filenames = [ f for f in files ]
         filenames = [ os.path.join(os.path.basename(os.path.dirname(f)),
                                    os.path.basename(f))
                       for f in filenames ]
@@ -814,12 +810,6 @@ class CollectionUI(ImageView):
             if 0 <= self.pos + i < len(self.filelist):
                 files.append(self.filelist[self.pos + i])
         return files
-
-    def close(self):
-        self.filelist.close()
-
-    def __del__(self):
-        self.close()
 
 class Config(dict):
     def load(self, filename):
@@ -1014,7 +1004,6 @@ class PaiUI(object):
     @assert_gui_thread
     def close(self):
         self.bookmarks[0] = self.collection.pos
-        self.collection.close()
         gtk.main_quit()
 
     @assert_gui_thread
