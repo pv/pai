@@ -315,16 +315,20 @@ class RecursiveFileList(object):
     def __len__(self):
         return len(self._files)
 
+    def open_file(self, fn):
+        return open(fn, 'r')
+
 
 ##############################################################################
 ## ImageCache / ImageView
 ##############################################################################
 
 class ImageCache(object):
-    def __init__(self, max_items=MAX_IMAGE_CACHE):
+    def __init__(self, filelist, max_items=MAX_IMAGE_CACHE):
         self.raw_pixbufs = {}
         self.scaled_pixbufs = {}
         self.filenames = []
+        self.filelist = filelist
         self.max_items = max_items
         self.interpolation = gtk.gdk.INTERP_BILINEAR
     
@@ -350,7 +354,14 @@ class ImageCache(object):
 #            gc.collect()
 
         # load image
-        raw_pixbuf = gtk.gdk.pixbuf_new_from_file(filename)
+        loader = gtk.gdk.PixbufLoader()
+        fh = self.filelist.open_file(filename)
+        try:
+            shutil.copyfileobj(fh, loader)
+        finally:
+            fh.close()
+        loader.close()
+        raw_pixbuf = loader.get_pixbuf()
         self.filenames.append(filename)
         self.raw_pixbufs[filename] = raw_pixbuf
 
@@ -597,14 +608,15 @@ class CollectionUI(ImageView):
         }
     
     def __init__(self, sources, ncolumns=1, rtl=False, progress_dlg=None):
-        self.cache = ImageCache()
-        ImageView.__init__(self, self.cache)
-
         self.sources = [ os.path.realpath(p) for p in sources
                          if os.path.exists(p) ]
         self.filelist = RecursiveFileList(self.sources, IMAGE_EXTENSIONS,
                                           progress_dlg.queue)
         progress_dlg.close()
+        
+        self.cache = ImageCache(self.filelist)
+        ImageView.__init__(self, self.cache)
+        
         self.pos = 0
         self.rtl = rtl
         self.ncolumns = ncolumns
