@@ -618,6 +618,7 @@ class CollectionUI(ImageView):
         self.rtl = rtl
         self.ncolumns = ncolumns
         self.preload_id = 0
+        self.update_id = 0
 
         self.connect("map-event", self.__map_event)
 
@@ -633,7 +634,7 @@ class CollectionUI(ImageView):
             self.offset = [+1e9,-1e9]
         if self.rotated:
             self.offset.reverse()
-        self.__update_position()
+        self.__schedule_update_position()
 
     def previous(self, count=1):
         last_pos = self.pos
@@ -647,7 +648,7 @@ class CollectionUI(ImageView):
             self.offset = [-1e9,1e9]
         if self.rotated:
             self.offset.reverse()
-        self.__update_position()
+        self.__schedule_update_position()
 
     def next_screen(self, count=1):
         last_pos = self.pos
@@ -661,7 +662,7 @@ class CollectionUI(ImageView):
             self.offset = [+1e9,-1e9]
         if self.rotated:
             self.offset.reverse()
-        self.__update_position()
+        self.__schedule_update_position()
 
     def previous_screen(self, count=1):
         last_pos = self.pos
@@ -675,7 +676,7 @@ class CollectionUI(ImageView):
             self.offset = [-1e9,1e9]
         if self.rotated:
             self.offset.reverse()
-        self.__update_position()
+        self.__schedule_update_position()
 
     def adjust_zoom(self, step):
         scales = [1, 1.5, 2]
@@ -722,20 +723,19 @@ class CollectionUI(ImageView):
     def goto(self, i):
         self.pos = i
         self.__limit_position()
-        self.__update_position()
+        self.__schedule_update_position()
 
     def first(self):
         self.pos = 0
-        self.__update_position()
+        self.__schedule_update_position()
 
     def last(self):
         self.pos = len(self.filelist) - self.ncolumns
-        self.__update_position()
+        self.__schedule_update_position()
 
     def update_view(self):
         self.__limit_position()
-        self.__update_position()
-        run_in_gui_thread(self.queue_draw)
+        self.__schedule_update_position()
 
     def set_interpolation(self, interpolation):
         self.cache.set_interpolation(interpolation)
@@ -745,7 +745,7 @@ class CollectionUI(ImageView):
 
     @assert_gui_thread
     def __map_event(self, widget, event):
-        self.__update_position()
+        self.__schedule_update_position()
         self.schedule_preload()
 
     def __limit_position(self):
@@ -776,7 +776,9 @@ class CollectionUI(ImageView):
         ImageView.do_expose_event(self, event)
         self.schedule_preload()
 
-    def __update_position(self):
+    def __update_position(self, update_id):
+        if update_id != self.update_id: return
+        
         files = self.__get_show_files()
         filenames = [ f for f in files ]
         filenames = [ os.path.join(os.path.basename(os.path.dirname(f)),
@@ -788,6 +790,10 @@ class CollectionUI(ImageView):
         self.set_files(files)
 
         self.schedule_preload()
+
+    def __schedule_update_position(self, delay=10):
+        self.update_id += 1
+        run_later_in_gui_thread(delay, self.__update_position, self.update_id)
 
     def __get_show_files(self):
         endpos = self.pos + self.ncolumns
