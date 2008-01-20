@@ -100,7 +100,6 @@ def assert_gui_thread(func):
         return func(*a, **kw)
     return _wrapper
 
-
 ##############################################################################
 ## Image list / recursive archive unpack
 ##############################################################################
@@ -324,7 +323,8 @@ class ImageCache(object):
         self.filelist = filelist
         self.max_items = max_items
         self.interpolation = gtk.gdk.INTERP_BILINEAR
-    
+
+    @assert_gui_thread
     def add(self, filename):
         if filename in self.filenames:
             return # noop
@@ -346,18 +346,24 @@ class ImageCache(object):
 #
 #            gc.collect()
 
-        # load image
-        loader = gtk.gdk.PixbufLoader()
-        fh = self.filelist.open_file(filename)
-        if isinstance(fh, str):
-            loader.write(fh)
+        # load image (aargh, gtk.gdk.PixbufLoader doesn't work in a thread)
+        if os.path.isfile(filename):
+            raw_pixbuf = gtk.gdk.pixbuf_new_from_file(filename)
         else:
-            try:
-                shutil.copyfileobj(fh, loader)
-            finally:
-                fh.close()
-        loader.close()
-        raw_pixbuf = loader.get_pixbuf()
+            f=tempfile.NamedTemporaryFile(suffix=os.path.splitext(filename)[1])
+            fh = self.filelist.open_file(filename)
+            if isinstance(fh, str):
+                f.write(fh)
+            else:
+                try:
+                    shutil.copyfileobj(fh, f)
+                finally:
+                    fh.close()
+            f.flush()
+            raw_pixbuf = gtk.gdk.pixbuf_new_from_file(f.name)
+            f.close()
+
+        # process
         self.filenames.append(filename)
         self.raw_pixbufs[filename] = raw_pixbuf
 
@@ -369,6 +375,7 @@ class ImageCache(object):
         self.add(filename)
         return self.raw_pixbufs[filename]
 
+    @assert_gui_thread
     def get_scaled(self, filename, width, height, rotated=False):
         self.add(filename)
         try:
@@ -414,13 +421,10 @@ class ImageView(gtk.DrawingArea):
         self.limits = [0, 0]
         self.screen_size = [0, 0]
 
-        @run_in_gui_thread
-        def _():
-            gtk.DrawingArea.__init__(self)
-
-            style = self.get_style().copy()
-            style.bg[gtk.STATE_NORMAL] = gtk.gdk.Color(0, 0, 0)
-            self.set_style(style)
+        gtk.DrawingArea.__init__(self)
+        style = self.get_style().copy()
+        style.bg[gtk.STATE_NORMAL] = gtk.gdk.Color(0, 0, 0)
+        self.set_style(style)
 
     def normalize_offset(self):
         def limit(x, a, b):
@@ -603,14 +607,11 @@ class CollectionUI(ImageView):
         'expose-event': 'override',
         }
     
-    def __init__(self, sources, ncolumns=1, rtl=False, progress_dlg=None):
-        self.sources = [ os.path.realpath(p) for p in sources
-                         if os.path.exists(p) ]
-        self.filelist = FileList(self.sources, IMAGE_EXTENSIONS,
-                                 progress_dlg.queue)
-        progress_dlg.close()
+    def __init__(self, sources, filelist, ncolumns=1, rtl=False):
+        self.sources = sources
+        self.filelist = filelist
         
-        self.cache = ImageCache(self.filelist)
+        self.cache = ImageCache(filelist)
         ImageView.__init__(self, self.cache)
         
         self.pos = 0
@@ -618,7 +619,7 @@ class CollectionUI(ImageView):
         self.ncolumns = ncolumns
         self.preload_id = 0
 
-        run_in_gui_thread(self.connect, "map-event", self.__map_event)
+        self.connect("map-event", self.__map_event)
 
     def next(self, count=1):
         last_pos = self.pos
@@ -857,28 +858,21 @@ class Bookmarks(object):
         return self.values[i]
 
 class PaiUI(object):
-    def __init__(self, sources, config, rtl=False, ncolumns=2,
-                 progress_dlg=None):
 
+    def __init__(self, sources, filelist, config, rtl=False, ncolumns=2):
         self.config = config
-
-        self.collection = CollectionUI(sources, ncolumns=ncolumns, rtl=rtl,
-                                       progress_dlg=progress_dlg)
-
+        self.collection = CollectionUI(sources, filelist, ncolumns=ncolumns,
+                                       rtl=rtl)
         self.bookmarks = Bookmarks(self.collection.sources, self.config)
         self.collection.goto(self.bookmarks[0])
 
         self.fullscreen = False
-        
-        @run_in_gui_thread
-        def _():
-            self.collection.set_size_request(300, 200)
 
-            self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
-            self.window.connect("destroy", self.destroy_event)
-            self.window.connect("key-press-event", self.key_press_event)
-            self.window.add(self.collection)
-
+        self.collection.set_size_request(300, 200)
+        self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
+        self.window.connect("destroy", self.destroy_event)
+        self.window.connect("key-press-event", self.key_press_event)
+        self.window.add(self.collection)
 
     @assert_gui_thread
     def show(self):
@@ -1010,7 +1004,6 @@ class PaiUI(object):
     def destroy_event(self, widget):
         self.close()
 
-
 ##############################################################################
 ## Progress dialog
 ##############################################################################
@@ -1023,26 +1016,24 @@ class ProgressDialog(object):
     >>> dlg.close()
     """
     def __init__(self, title=""):
-        @run_in_gui_thread
-        def _():
-            self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
-            self.window.set_title(title)
+        self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
+        self.window.set_title(title)
+        
+        vbox = gtk.VBox(False, 2)
+        vbox.set_border_width(10)
+        self.window.add(vbox)
+        vbox.show()
 
-            vbox = gtk.VBox(False, 2)
-            vbox.set_border_width(10)
-            self.window.add(vbox)
-            vbox.show()
+        self.label = gtk.Label()
+        vbox.pack_start(self.label)
+        self.label.show()
+        
+        self.bar = gtk.ProgressBar()
+        vbox.pack_end(self.bar)
+        self.bar.show()
 
-            self.label = gtk.Label()
-            vbox.pack_start(self.label)
-            self.label.show()
-
-            self.bar = gtk.ProgressBar()
-            vbox.pack_end(self.bar)
-            self.bar.show()
-
-            self.window.show()
-
+        self.window.show()
+            
         self.queue = Queue.Queue()
         self.__listener = threading.Thread(target=self.__listener)
 
@@ -1066,7 +1057,6 @@ class ProgressDialog(object):
     def close(self):
         self.queue.put(None)
 
-
 ##############################################################################
 ## Main
 ##############################################################################
@@ -1074,10 +1064,20 @@ class ProgressDialog(object):
 def start(args, options, config):
     progress = ProgressDialog("Starting PAI...")
 
-    ui = PaiUI(args, config, ncolumns=options.ncolumns, rtl=options.rtl,
-               progress_dlg=progress)
+    sources = [os.path.realpath(p) for p in args if os.path.exists(p)]
 
-    run_in_gui_thread(ui.show)
+    def _load():
+        filelist = FileList(sources, IMAGE_EXTENSIONS, progress.queue)
+        run_in_gui_thread(_finished, filelist)
+
+    @assert_gui_thread
+    def _finished(filelist):
+        progress.close()
+        ui = PaiUI(sources, filelist, config, ncolumns=options.ncolumns,
+                   rtl=options.rtl)
+        ui.show()
+
+    threading.Thread(target=_load).start()
 
 def main():
     parser = optparse.OptionParser(usage="%prog [options] images-or-something")
@@ -1101,9 +1101,7 @@ def main():
         config.load(config_fn)
 
     gtk.gdk.threads_init()
-
-    threading.Thread(target=start, args=(args, options, config,)).start()
-
+    run_in_gui_thread(start, args, options, config)
     gtk.main()
 
     config.save(config_fn)
