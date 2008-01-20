@@ -714,8 +714,8 @@ class CollectionUI(ImageView):
         self.normalize_offset()
 
         # did pan or hit edge?
-        xmin = self.screen_size[0]/20 + 3
-        ymin = self.screen_size[1]/20 + 3
+        xmin = 3
+        ymin = 3
         panned = (abs(self.offset[0]-last_offset[0]) > xmin or
                   abs(self.offset[1]-last_offset[1]) > ymin)
         return panned
@@ -878,13 +878,67 @@ class PaiUI(object):
         self.window = gtk.Window(gtk.WINDOW_TOPLEVEL)
         self.window.connect("destroy", self.destroy_event)
         self.window.connect("key-press-event", self.key_press_event)
+
+        self.window.add_events(gtk.gdk.BUTTON_RELEASE_MASK
+                               | gtk.gdk.BUTTON_PRESS_MASK)
+        self.window.connect("button-release-event", self.button_release_event)
         self.window.add(self.collection)
+
 
     @assert_gui_thread
     def show(self):
         self.window.show_all()
         if self.fullscreen:
             self.window.fullscreen()
+
+
+    def _do_left(self):
+        if not self.collection.pan_around(-1, 0):
+            if not self.collection.rotated:
+                if not self.collection.rtl:
+                    self.collection.previous()
+                else:
+                    self.collection.next()
+            elif self.collection.zoom_ratio == 1:
+                self.collection.next_screen(10)
+        else:
+            self.collection.update_view()
+
+    def _do_right(self):
+        if not self.collection.pan_around(1, 0):
+            if not self.collection.rotated:
+                if not self.collection.rtl:
+                    self.collection.next()
+                else:
+                    self.collection.previous()
+            elif self.collection.zoom_ratio == 1:
+                self.collection.previous_screen(10)
+        else:
+            self.collection.update_view()
+
+    def _do_up(self):
+        if not self.collection.pan_around(0, -1):
+            if self.collection.rotated:
+                if not self.collection.rtl:
+                    self.collection.previous()
+                else:
+                    self.collection.next()
+            elif self.collection.zoom_ratio == 1:
+                self.collection.previous_screen(10)
+        else:
+            self.collection.update_view()
+
+    def _do_down(self):
+        if not self.collection.pan_around(0, 1):
+            if self.collection.rotated:
+                if not self.collection.rtl:
+                    self.collection.next()
+                else:
+                    self.collection.previous()
+            elif self.collection.zoom_ratio == 1:
+                self.collection.next_screen(10)
+        else:
+            self.collection.update_view()
         
     @assert_gui_thread
     def key_press_event(self, widget, event):
@@ -904,53 +958,17 @@ class PaiUI(object):
             self.collection.last()
 
         elif event.keyval == gtk.keysyms.Left:
-            if not self.collection.pan_around(-1, 0):
-                if not self.collection.rotated:
-                    if not self.collection.rtl:
-                        self.collection.previous()
-                    else:
-                        self.collection.next()
-                elif self.collection.zoom_ratio == 1:
-                    self.collection.next_screen(10)
-            else:
-                self.collection.update_view()
+            self._do_left()
 
         elif event.keyval == gtk.keysyms.Right:
-            if not self.collection.pan_around(1, 0):
-                if not self.collection.rotated:
-                    if not self.collection.rtl:
-                        self.collection.next()
-                    else:
-                        self.collection.previous()
-                elif self.collection.zoom_ratio == 1:
-                    self.collection.previous_screen(10)
-            else:
-                self.collection.update_view()
+            self._do_right()
 
         elif event.keyval == gtk.keysyms.Up:
-            if not self.collection.pan_around(0, -1):
-                if self.collection.rotated:
-                    if not self.collection.rtl:
-                        self.collection.previous()
-                    else:
-                        self.collection.next()
-                elif self.collection.zoom_ratio == 1:
-                    self.collection.previous_screen(10)
-            else:
-                self.collection.update_view()
-
+            self._do_up()
+            
         elif event.keyval == gtk.keysyms.Down:
-            if not self.collection.pan_around(0, 1):
-                if self.collection.rotated:
-                    if not self.collection.rtl:
-                        self.collection.next()
-                    else:
-                        self.collection.previous()
-                elif self.collection.zoom_ratio == 1:
-                    self.collection.next_screen(10)
-            else:
-                self.collection.update_view()
-
+            self._do_down()
+            
         elif event.keyval == gtk.keysyms.Prior:
             self.collection.previous_screen(10)
 
@@ -1001,6 +1019,18 @@ class PaiUI(object):
                 self.collection.set_interpolation(gtk.gdk.INTERP_BILINEAR)
             self.collection.update_view()
 
+    @assert_gui_thread
+    def button_release_event(self, widget, event):
+        x, y, w, h = self.collection.get_allocation()
+        if event.x <= w/4:
+            self._do_left()
+        elif event.x >= w*3/4:
+            self._do_right()
+        elif event.y <= h/4:
+            self._do_up()
+        elif event.y >= h*3/4:
+            self._do_down()
+    
     @assert_gui_thread
     def close(self):
         self.bookmarks[0] = self.collection.pos
