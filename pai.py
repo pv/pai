@@ -53,11 +53,15 @@ else:
 #
 # Every time you call a non-threadsafe GTK function (=most of them),
 # be sure that either
+#
 # 1. The function where you make the call is a GTK signal handler, OR,
 # 2. The function is in GUI thread and holding the GDK lock, OR,
 # 3. You make the call via run_in_gui_thread or run_later_in_gui_thread
 #
-# Guideline: NEVER USE gobject.* callbacks, USE ONLY the run_* functions below
+# Note: gobject.* callback functions don't reserve the GDK lock.
+#       To avoid confusion, ONLY USE THE run_* FUNCTIONS BELOW.
+#
+
 #
 # Blocks to run in gui thread sometime later (as a shorthand) can be
 # specified via
