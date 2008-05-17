@@ -1,0 +1,16 @@
+[install]
+package = pai
+catalogues = pai; extras;
+
+[catalogues]
+catalogues = pai; extras;
+
+[pai]
+name = Gutenbrowse etc. catalogue
+uri = http://www.elisanet.fi/ptvirtan/repo/
+components = main
+
+[extras]
+name = maemo Extras
+uri = http://repository.maemo.org/extras/
+components = free non-free

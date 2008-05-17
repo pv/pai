@@ -1,0 +1,11 @@
+[Desktop Entry]
+Encoding=UTF-8
+Type=Application
+Name=Pai
+Comment=Picture Archive Inspector
+Exec=pai
+Icon=pai
+StartupNotify=true
+X-HildonDesk-ShowInToolbar=true
+X-Window-Icon=pai
+X-Window-Icon-Dimmed=pai
