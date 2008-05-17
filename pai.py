@@ -512,11 +512,20 @@ class ImageView(gtk.DrawingArea):
         total_width = 0
         total_height = 0
 
-        for i in range(len(files)):
-            raw_pixbuf = self.cache.get(files[i])
+        i = 0
+        while i < len(files):
+            try:
+                raw_pixbuf = self.cache.get(files[i])
+            except IOError:
+                del files[i]
+                continue
             total_width += raw_pixbuf.get_width()
             total_height = max(raw_pixbuf.get_height(), total_height)
+            i += 1
 
+        if len(files) == 0:
+            return []
+        
         # FIXME: separate layout rotation from image rotation?
         if self.rotated:
             total_width, total_height = total_height, total_width
