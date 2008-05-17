@@ -24,7 +24,8 @@ install: build
 	dh_clean -k
 	dh_installdirs
 
-	$(PYTHON2.5) setup.py install --root=debian/$(PKG)
+	install -d debian/$(PKG)/usr/bin
+	install -m 755 pai.py debian/$(PKG)/usr/bin/pai
 
 	install -d debian/$(PKG)/usr/share/applications/hildon
 	install -m 644 \
@@ -35,10 +36,6 @@ install: build
 	install -m 644 \
 		debian/maemo/backup \
 		debian/$(PKG)/etc/osso-backup/applications/pai.conf
-
-	install -d debian/$(PKG)/usr/share/pixmaps
-	install -m 644 \
-		pai.png debian/$(PKG)/usr/share/pixmaps
 
 # Build architecture-independent files here.
 binary-indep: build install

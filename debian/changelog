@@ -1,18 +1,5 @@
-gutenbrowse (0.1.1-2) hardy; urgency=low
+pai (0.1-1) intrepid; urgency=low
 
-  * New upload.
+  * New upload. 
 
- -- Pauli Virtanen <pauli.virtanen@iki.fi>  Sat, 19 Apr 2008 15:28:01 +0300
-
-gutenbrowse (0.1.1-0.1) gutsy; urgency=low
-
-  * New version.
-
- -- Pauli Virtanen <pauli.virtanen@iki.fi>  Mon, 17 Sep 2007 00:36:10 +0300
-
-gutenbrowse (0.1-0.1) gutsy; urgency=low
-
-  * First release.
-
- -- Pauli Virtanen <pauli.virtanen@iki.fi>  Sun, 16 Sep 2007 22:32:56 +0300
-
+ -- Pauli Virtanen <pauli.virtanen@iki.fi>  Sun, 18 May 2008 02:18:34 +0300

@@ -10,10 +10,11 @@ Picture archive inspector
 
 :Author: Pauli Virtanen <pav@iki.fi>
 """
+from __future__ import division
+
+__version__ = "0.1"
 
 # Sorry, the code is slowly becoming a mess...
-
-from __future__ import division
 
 import sys, os, shutil, tempfile, re, random, time, traceback, copy
 import pygtk
@@ -1159,7 +1160,9 @@ def start(args, options, config):
     threading.Thread(target=_load).start()
 
 def main():
-    parser = optparse.OptionParser(usage="%prog [options] images-or-something")
+    usage = ("%%prog [options] [images-or-something]...\n"
+             "Picture archive inspector version %s" % __version__)
+    parser = optparse.OptionParser(usage=usage)
     parser.add_option("-r", "--rtl", action="store_true", dest="rtl",
                       help="show images in right-to-left order", default=True)
     parser.add_option("-l", "--ltr", action="store_false", dest="rtl",
