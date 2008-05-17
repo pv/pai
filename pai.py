@@ -455,7 +455,7 @@ class ImageView(gtk.DrawingArea):
     @assert_gui_thread
     def do_expose_event(self, event):
         if not self.window or not self.window.is_visible():
-            return
+            return False
         if not self.cache or not self.filenames:
             return False
         x, y, width, height = self.get_allocation()
@@ -477,7 +477,8 @@ class ImageView(gtk.DrawingArea):
                             xpos - self.offset[0],
                             ypos - self.offset[1] + text_size[1],
                             event.area)
-
+        return False
+    
     @assert_gui_thread
     def preload(self, filenames):
         if not DO_PRELOADING:
@@ -612,9 +613,6 @@ class ImageView(gtk.DrawingArea):
 ##############################################################################
 
 class CollectionUI(ImageView):
-    __gsignals__ = {
-        'expose-event': 'override',
-        }
     
     def __init__(self, sources, filelist, ncolumns=1, rtl=False):
         self.sources = sources
@@ -756,7 +754,8 @@ class CollectionUI(ImageView):
     def __map_event(self, widget, event):
         self.__schedule_update_position()
         self.schedule_preload()
-
+        return False
+    
     def __limit_position(self):
         if self.pos > len(self.filelist) - self.ncolumns:
             self.pos = len(self.filelist) - self.ncolumns
@@ -779,11 +778,6 @@ class CollectionUI(ImageView):
                                 self.preload,
                                 self.__get_preload_files(),
                                 self.preload_id)
-
-    @assert_gui_thread
-    def do_expose_event(self, event):
-        ImageView.do_expose_event(self, event)
-        self.schedule_preload()
 
     def __update_position(self, update_id):
         if update_id != self.update_id: return
