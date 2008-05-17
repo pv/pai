@@ -53,8 +53,11 @@ else:
 #
 # Every time you call a non-threadsafe GTK function (=most of them),
 # be sure that either
-# 1. The function where you make the call has @assert_gui_thread, OR,
-# 2. You make the call via run_in_gui_thread or run_later_in_gui_thread
+# 1. The function where you make the call is a GTK signal handler, OR,
+# 2. The function is in GUI thread and holding the GDK lock, OR,
+# 3. You make the call via run_in_gui_thread or run_later_in_gui_thread
+#
+# Guideline: NEVER USE gobject.* callbacks, USE ONLY the run_* functions below
 #
 # Blocks to run in gui thread sometime later (as a shorthand) can be
 # specified via
@@ -77,17 +80,29 @@ else:
 
 def run_in_gui_thread(func, *a, **kw):
     """Run the function in the GUI thread, next time when the GUI is idle."""
+    # NB: gobject.idle_add functions are in main thread, but NOT inside
+    #     the GDK lock
     def timer():
-        func(*a, **kw)
-        return False
+        gtk.gdk.threads_enter()
+        try:
+            func(*a, **kw)
+            return False
+        finally:
+            gtk.gdk.threads_leave()
     gobject.idle_add(timer)
     return None
 
 def run_later_in_gui_thread(delay, func, *a, **kw):
     """Run the function in the GUI thread, after a delay"""
+    # NB: gobject.idle_add functions are in main thread, but NOT inside
+    #     the GDK lock
     def timer():
-        func(*a, **kw)
-        return False
+        gtk.gdk.threads_enter()
+        try:
+            func(*a, **kw)
+            return False
+        finally:
+            gtk.gdk.threads_leave()
     gobject.timeout_add(delay, timer)
     return None
 
@@ -1101,14 +1116,33 @@ class ProgressDialog(object):
 ##############################################################################
 
 def start(args, options, config):
-    progress = ProgressDialog("Starting PAI...")
-
+    if not args:
+        if HILDON:
+            dummy_ui = gtk.Window()
+            dlg = hildon.FileChooserDialog(dummy_ui,
+                                           action=gtk.FILE_CHOOSER_ACTION_OPEN)
+        else:
+            dlg = gtk.FileChooserDialog(
+                title="Open",
+                action=gtk.FILE_CHOOSER_ACTION_OPEN,
+                buttons=(gtk.STOCK_OPEN, gtk.RESPONSE_OK,
+                         gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL)
+                )
+            dlg.set_local_only(True)
+        result = dlg.run()
+        if result != gtk.RESPONSE_OK:
+            gtk.main_quit()
+            sys.exit(0)
+        args = dlg.get_filenames()
+        dlg.destroy()
+    
     sources = [os.path.realpath(p) for p in args if os.path.exists(p)]
-
+    
+    progress = ProgressDialog("Starting PAI...")
     def _load():
         filelist = FileList(sources, IMAGE_EXTENSIONS, progress.queue)
         run_in_gui_thread(_finished, filelist)
-
+    
     @assert_gui_thread
     def _finished(filelist):
         progress.close()
@@ -1128,9 +1162,6 @@ def main():
                       help="show images in N columns", default=DEFAULT_COLUMNS)
     options, args = parser.parse_args()
 
-    if len(args) < 1:
-        parser.error("no image sources given")
-
     if options.ncolumns > 4 or options.ncolumns < 1:
         parser.error("invalid number of columns given")
         
@@ -1140,9 +1171,12 @@ def main():
         config.load(config_fn)
 
     gtk.gdk.threads_init()
+
+    gtk.gdk.threads_enter()
     run_in_gui_thread(start, args, options, config)
     gtk.main()
-
+    gtk.gdk.threads_leave()
+    
     config.save(config_fn)
 
     sys.exit(0)
