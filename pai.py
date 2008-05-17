@@ -1123,16 +1123,18 @@ def start(args, options, config):
     if not args:
         if HILDON:
             dummy_ui = gtk.Window()
-            dlg = hildon.FileChooserDialog(dummy_ui,
-                                           action=gtk.FILE_CHOOSER_ACTION_OPEN)
+            dlg = hildon.FileChooserDialog(
+                dummy_ui, action=gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER)
         else:
             dlg = gtk.FileChooserDialog(
                 title="Open",
-                action=gtk.FILE_CHOOSER_ACTION_OPEN,
+                action=gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER,
                 buttons=(gtk.STOCK_OPEN, gtk.RESPONSE_OK,
                          gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL)
                 )
-            dlg.set_local_only(True)
+        dlg.set_local_only(True)
+        dlg.set_select_multiple(True)
+        
         result = dlg.run()
         if result != gtk.RESPONSE_OK:
             gtk.main_quit()
