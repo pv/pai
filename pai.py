@@ -360,11 +360,7 @@ class ImageCache(object):
             except KeyError:
                 pass
             del self.filenames[0]
-# FIXME: for some reason the following gc.collect() wreaks havoc on
-#        pygtk 2.11.0-0ubuntu1 (worked on 2.10.4), and results to PaiUI
-#        losing its __dict__! I have no clue what's going on.
-#
-#            gc.collect()
+            gc.collect()
 
         # load image (aargh, gtk.gdk.PixbufLoader doesn't work properly...)
         if os.path.isfile(filename):
@@ -412,9 +408,7 @@ class ImageCache(object):
                 pixbuf = pixbuf.scale_simple(width, height,
                                              self.interpolation)
             self.scaled_pixbufs[filename] = pixbuf
-# FIXME: same problem with gc.collect() as above!
-#
-#            gc.collect()
+            gc.collect()
             return pixbuf
 
 class ImageView(gtk.DrawingArea):
@@ -1120,6 +1114,10 @@ class ProgressDialog(object):
 ## Main
 ##############################################################################
 
+# Note: we *must* hold a reference to the main UI object;
+#       otherwise it is destroyed even though in use.
+MAIN_UI = None
+        
 def start(args, options, config):
     if not args:
         if HILDON:
@@ -1152,10 +1150,11 @@ def start(args, options, config):
     
     @assert_gui_thread
     def _finished(filelist):
+        global MAIN_UI
         progress.close()
-        ui = PaiUI(sources, filelist, config, ncolumns=options.ncolumns,
-                   rtl=options.rtl)
-        ui.show()
+        MAIN_UI = PaiUI(sources, filelist, config, ncolumns=options.ncolumns,
+                        rtl=options.rtl)
+        MAIN_UI.show()
 
     threading.Thread(target=_load).start()
 
