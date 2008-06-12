@@ -1,2 +1,5 @@
 syntax: glob
 *~
+*.substvars
+debian/files
+debian/pai
