@@ -1,3 +1,9 @@
+pai (0.1.1-1) intrepid; urgency=low
+
+  * A bug fixed.
+
+ -- Pauli Virtanen <pauli.virtanen@iki.fi>  Thu, 12 Jun 2008 22:56:15 +0300
+
 pai (0.1-1) intrepid; urgency=low
 
   * New upload. 
