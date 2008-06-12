@@ -12,7 +12,7 @@ Picture archive inspector
 """
 from __future__ import division
 
-__version__ = "0.1.1"
+__version__ = "0.1.1.dev"
 
 # Sorry, the code is slowly becoming a mess...
 
