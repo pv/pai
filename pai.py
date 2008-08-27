@@ -254,6 +254,37 @@ class RarUnpacker(DummyUnpacker):
         finally:
             shutil.rmtree(tmpdir)
 
+class SevenZipUnpacker(DummyUnpacker):
+    def _get_files(self):
+        p = subprocess.Popen(["7z", "l", self.archive],
+                             stdout=subprocess.PIPE,
+                             stdin=subprocess.PIPE)
+        out, err = p.communicate()
+        begun = False
+        lst = []
+        for line in out.split("\n"):
+            if not begun:
+                if line.startswith('-------'):
+                    begun = True
+                continue
+            if line.startswith('------'): break
+            lst.append(line[53:])
+        return self._prefix_archive(lst)
+    
+    def open_file(self, name):
+        tmpdir = tempfile.mkdtemp()
+        name = self._unprefix_archive(name)
+
+        p = subprocess.Popen(["7z", "e", "-o%s" % tmpdir, self.archive, name],
+                             stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+        p.communicate()
+        
+        try:
+            basename = os.path.basename(name)
+            return open(os.path.join(tmpdir, basename), 'r')
+        finally:
+            shutil.rmtree(tmpdir)
+
 def recursive_find(dirname, unpackers, progress_queue=None):
     """Return all files under dirname, with associated unpackers (if any)."""
     pathlist = [ os.path.abspath(dirname) ]
@@ -289,6 +320,7 @@ class FileList(object):
     
     zip_extension_map = ExtensionMap({
         '.zip': ZipUnpacker,
+        '.cbz': ZipUnpacker,
         '.tar': TarUnpacker,
         '.tar.gz': TarUnpacker,
         '.tar.bz2': TarUnpacker,
@@ -296,6 +328,7 @@ class FileList(object):
         '.tb2': TarUnpacker,
         '.tgz': TarUnpacker,
         '.rar': RarUnpacker,
+        '.7z': SevenZipUnpacker,
         })
 
     def __init__(self, filenames, extensionlist=None, progress_queue=None):
