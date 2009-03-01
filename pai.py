@@ -1092,7 +1092,7 @@ class PaiUI(object):
         if self.drag_obj:
             x0, y0, t0, offset = self.drag_obj
             self.drag_obj = None
-            if time.time() > t0 + 0.200:
+            if time.time() > t0 + 0.500:
                 # too long to be a click
                 return
             if (event.x-x0)**2 + (event.y-y0)**2 > 10**2:
@@ -1122,8 +1122,8 @@ class PaiUI(object):
 
         x0, y0, t0, offset = self.drag_obj
 
-        if time.time() < t0 + 0.200:
-            # delay 200 ms before reacting to drag
+        if time.time() < t0 + 0.100:
+            # delay 100 ms before reacting to drag
             return
 
         self.collection.pan_to_offset(offset[0] - (event.x - x0),
