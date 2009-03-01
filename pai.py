@@ -774,6 +774,13 @@ class CollectionUI(ImageView):
                   abs(self.offset[1]-last_offset[1]) > ymin)
         return panned
 
+    def pan_to_offset(self, x, y):
+        """
+        Pan the screen to given offset
+        """
+        self.offset[:] = x, y
+        self.normalize_offset()
+
     def goto(self, i):
         self.pos = i
         self.__limit_position()
@@ -930,10 +937,14 @@ class PaiUI(object):
         self.window.connect("key-press-event", self.key_press_event)
 
         self.window.add_events(gtk.gdk.BUTTON_RELEASE_MASK
-                               | gtk.gdk.BUTTON_PRESS_MASK)
+                               | gtk.gdk.BUTTON_PRESS_MASK
+                               | gtk.gdk.BUTTON_MOTION_MASK)
         self.window.connect("button-release-event", self.button_release_event)
+        self.window.connect("button-press-event", self.button_press_event)
+        self.window.connect("motion-notify-event", self.motion_notify_event)
         self.window.add(self.collection)
 
+        self.drag_obj = None
 
     @assert_gui_thread
     def show(self):
@@ -952,7 +963,7 @@ class PaiUI(object):
             elif self.collection.zoom_ratio == 1:
                 self.collection.next_screen(10)
         else:
-            self.collection.update_view()
+            self.collection.queue_draw()
 
     def _do_right(self):
         if not self.collection.pan_around(1, 0):
@@ -964,7 +975,7 @@ class PaiUI(object):
             elif self.collection.zoom_ratio == 1:
                 self.collection.previous_screen(10)
         else:
-            self.collection.update_view()
+            self.collection.queue_draw()
 
     def _do_up(self):
         if not self.collection.pan_around(0, -1):
@@ -976,7 +987,7 @@ class PaiUI(object):
             elif self.collection.zoom_ratio == 1:
                 self.collection.previous_screen(10)
         else:
-            self.collection.update_view()
+            self.collection.queue_draw()
 
     def _do_down(self):
         if not self.collection.pan_around(0, 1):
@@ -988,7 +999,7 @@ class PaiUI(object):
             elif self.collection.zoom_ratio == 1:
                 self.collection.next_screen(10)
         else:
-            self.collection.update_view()
+            self.collection.queue_draw()
         
     @assert_gui_thread
     def key_press_event(self, widget, event):
@@ -1071,6 +1082,17 @@ class PaiUI(object):
 
     @assert_gui_thread
     def button_release_event(self, widget, event):
+        # determine if it was not a click
+        if self.drag_obj:
+            x0, y0, t0, offset = self.drag_obj
+            self.drag_obj = None
+            if time.time() > t0 + 0.200:
+                # too long to be a click
+                return
+            if (event.x-x0)**2 + (event.y-y0)**2 > 10**2:
+                # too large movement to be a click
+                return
+
         x, y, w, h = self.collection.get_allocation()
         if event.x <= w/4:
             self._do_left()
@@ -1080,7 +1102,28 @@ class PaiUI(object):
             self._do_up()
         elif event.y >= h*3/4:
             self._do_down()
-    
+
+    @assert_gui_thread
+    def button_press_event(self, widget, event):
+        self.drag_obj = (event.x, event.y, time.time(),
+                         tuple(self.collection.offset))
+
+    @assert_gui_thread
+    def motion_notify_event(self, widget, event):
+        if self.drag_obj is None:
+            # no drag going on
+            return
+
+        x0, y0, t0, offset = self.drag_obj
+
+        if time.time() < t0 + 0.200:
+            # delay 200 ms before reacting to drag
+            return
+
+        self.collection.pan_to_offset(offset[0] - (event.x - x0),
+                                      offset[1] - (event.y - y0))
+        self.collection.queue_draw()
+
     @assert_gui_thread
     def close(self):
         self.bookmarks[0] = self.collection.pos
