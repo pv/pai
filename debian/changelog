@@ -1,3 +1,9 @@
+pai (0.1.2-1) jaunty; urgency=low
+
+  * New upstream.
+
+ -- Pauli Virtanen <pauli.virtanen@iki.fi>  Mon, 02 Mar 2009 01:20:05 +0200
+
 pai (0.1.1-1) intrepid; urgency=low
 
   * A bug fixed.
