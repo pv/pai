@@ -517,13 +517,19 @@ class ImageView(gtk.DrawingArea):
                                 foreground=gtk.gdk.Color(65535,65535,65535))
  
         # render image
+
+
         self.normalize_offset()
         to_show = self.__get_files_to_show(self.filenames, width, height)
         for xpos, ypos, pixbuf in to_show:
+            area = event.area.copy()
+            dy = max(text_size[1] - area.y, 0)
+            area.y += dy
+            area.height -= dy
             self.blit_image(pixbuf,
                             xpos - self.offset[0],
                             ypos - self.offset[1] + text_size[1],
-                            event.area)
+                            area)
         return False
     
     @assert_gui_thread
