@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python2.5
 """
 ===
 pai
@@ -1204,8 +1204,9 @@ def start(args, options, config):
     if not args:
         if HILDON:
             dummy_ui = gtk.Window()
+            m = hildon.FileSystemModel()
             dlg = hildon.FileChooserDialog(
-                dummy_ui, action=gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER)
+                dummy_ui, gtk.FILE_CHOOSER_ACTION_SELECT_FOLDER, m)
         else:
             dlg = gtk.FileChooserDialog(
                 title="Open",
