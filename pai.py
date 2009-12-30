@@ -328,6 +328,7 @@ class FileList(object):
         '.tb2': TarUnpacker,
         '.tgz': TarUnpacker,
         '.rar': RarUnpacker,
+        '.cbr': RarUnpacker,
         '.7z': SevenZipUnpacker,
         })
 
