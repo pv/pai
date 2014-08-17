@@ -1,4 +1,3 @@
-syntax: glob
 *~
 *.substvars
 debian/files
